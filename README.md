@@ -20,8 +20,11 @@ npm run dev
 
 ## 当前功能
 
+- 中英文切换（默认中文）
+- 输入 OpenDota ID 或 Steam32，拉取真实对局数据
+- 14 天 / 30 天分析窗口切换
 - 数据概览卡片（总场次、胜率、KDA、最佳英雄）
-- 14 天胜率趋势图
+- 胜率趋势图（按窗口动态计算）
 - 英雄表现对比表格
 - 段位分布图
 
@@ -34,6 +37,7 @@ npm run dev
 ├── src/
 │   ├── components/
 │   ├── data/
+│   ├── services/
 │   ├── utils/
 │   ├── App.jsx
 │   ├── main.jsx

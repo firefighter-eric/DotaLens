@@ -1,6 +1,25 @@
-export const toPercent = (wins, matches) => ((wins / matches) * 100).toFixed(1);
+export const toPercent = (wins, matches) => {
+  if (!matches) {
+    return '0.0';
+  }
+  return ((wins / matches) * 100).toFixed(1);
+};
 
 export const summarizeDashboard = (heroData) => {
+  if (!heroData.length) {
+    return {
+      totalMatches: 0,
+      overallWinRate: '0.0',
+      avgKda: '0.00',
+      avgGpm: 0,
+      bestHero: {
+        hero: '-',
+        impact: 0,
+        avgGpm: 0,
+      },
+    };
+  }
+
   const totals = heroData.reduce(
     (acc, hero) => {
       acc.matches += hero.matches;
