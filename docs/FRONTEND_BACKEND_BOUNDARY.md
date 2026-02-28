@@ -23,6 +23,7 @@
 - 统一处理 HTTP 错误（404 / 429 / 其他状态码）。
 - 统一做请求参数兜底（`days`、`limit`）。
 - 统一做原始响应规范化（数组兜底、英雄缓存）。
+- 统一控制 OpenDota 查询策略（当前对局查询固定带 `significant=0`，避免默认过滤导致数据偏少）。
 
 ### 后端业务层（Domain Aggregation）
 - `src/services/opendota.js`

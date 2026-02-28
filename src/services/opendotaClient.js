@@ -70,12 +70,12 @@ export const createOpenDotaClient = (lang = 'zh') => {
     getPlayer: (accountId, signal) => fetchJson(`/players/${accountId}`, signal, locale),
     getPlayerMatchesByDays: async (accountId, days, signal) => {
       const safeDays = toPositiveInt(days, 14);
-      const matches = await fetchJson(`/players/${accountId}/matches?date=${safeDays}`, signal, locale);
+      const matches = await fetchJson(`/players/${accountId}/matches?date=${safeDays}&significant=0`, signal, locale);
       return toArray(matches);
     },
     getPlayerLatestMatches: async (accountId, limit, signal) => {
       const safeLimit = toPositiveInt(limit, 1);
-      const matches = await fetchJson(`/players/${accountId}/matches?limit=${safeLimit}`, signal, locale);
+      const matches = await fetchJson(`/players/${accountId}/matches?limit=${safeLimit}&significant=0`, signal, locale);
       return toArray(matches);
     },
     getHeroesMap: (signal) => getHeroesMap(signal, locale),
