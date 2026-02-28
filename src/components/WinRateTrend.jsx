@@ -44,8 +44,8 @@ function WinRateTrend({ data, days = 14, copy = fallbackCopy }) {
       <svg viewBox={`0 0 ${width} ${height}`} className="trend-chart" role="img" aria-label={copy.ariaLabel(days)}>
         <defs>
           <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgba(53, 195, 164, 0.55)" />
-            <stop offset="100%" stopColor="rgba(53, 195, 164, 0)" />
+            <stop offset="0%" stopColor="rgba(16, 163, 127, 0.24)" />
+            <stop offset="100%" stopColor="rgba(16, 163, 127, 0)" />
           </linearGradient>
         </defs>
         <polyline points={points} className="trend-line" />

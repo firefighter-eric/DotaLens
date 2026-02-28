@@ -33,7 +33,8 @@ npm run dev
 ```text
 .
 ├── docs/
-│   └── PROJECT_PLAN.md
+│   ├── PROJECT_PLAN.md
+│   └── FRONTEND_BACKEND_BOUNDARY.md
 ├── src/
 │   ├── components/
 │   ├── data/
@@ -51,3 +52,7 @@ npm run dev
 ## 项目规划
 
 见 `docs/PROJECT_PLAN.md`。
+
+## 架构边界说明
+
+见 `docs/FRONTEND_BACKEND_BOUNDARY.md`（前端展示层 / 数据调用层 / 业务聚合层）。

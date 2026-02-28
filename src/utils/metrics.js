@@ -41,3 +41,28 @@ export const summarizeDashboard = (heroData) => {
     bestHero,
   };
 };
+
+export const buildRoleDistribution = (heroData) => {
+  if (!heroData.length) {
+    return [];
+  }
+
+  const roleMap = heroData.reduce((acc, hero) => {
+    const role = hero.role || '-';
+    acc.set(role, (acc.get(role) ?? 0) + hero.matches);
+    return acc;
+  }, new Map());
+
+  const totalMatches = Array.from(roleMap.values()).reduce((sum, count) => sum + count, 0);
+  if (!totalMatches) {
+    return [];
+  }
+
+  return Array.from(roleMap.entries())
+    .map(([role, matches]) => ({
+      role,
+      matches,
+      ratio: Number(((matches / totalMatches) * 100).toFixed(1)),
+    }))
+    .sort((a, b) => b.ratio - a.ratio);
+};

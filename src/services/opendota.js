@@ -1,6 +1,6 @@
 import { summarizeDashboard } from '../utils/metrics.js';
+import { createOpenDotaClient } from './opendotaClient.js';
 
-const API_BASE = 'https://api.opendota.com/api';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const localeConfig = {
@@ -28,12 +28,6 @@ const localeConfig = {
     },
     roamingRole: '游走',
     unknownRole: '未标注',
-    errors: {
-      playerNotFound: '未找到该玩家，请检查 ID 是否正确。',
-      rateLimit: 'OpenDota 请求过于频繁，请稍后重试。',
-      httpFailed: (status) => `OpenDota 请求失败（HTTP ${status}）。`,
-      noMatches: (days) => `该玩家最近 ${days} 天没有公开对局数据。`,
-    },
     playerFallback: (accountId) => `玩家 ${accountId}`,
   },
   en: {
@@ -60,17 +54,9 @@ const localeConfig = {
     },
     roamingRole: 'Roaming',
     unknownRole: 'Unlabeled',
-    errors: {
-      playerNotFound: 'Player not found. Please check the ID.',
-      rateLimit: 'OpenDota rate limit reached. Please try again later.',
-      httpFailed: (status) => `OpenDota request failed (HTTP ${status}).`,
-      noMatches: (days) => `No public matches found in the last ${days} days.`,
-    },
     playerFallback: (accountId) => `Player ${accountId}`,
   },
 };
-
-let heroesCache = null;
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -94,36 +80,6 @@ const getDayStart = (value) => {
 const getMainRole = (roleCount, unknownRole) => {
   const sorted = Object.entries(roleCount).sort((a, b) => b[1] - a[1]);
   return sorted[0]?.[0] ?? unknownRole;
-};
-
-const fetchJson = async (path, signal, locale) => {
-  const response = await fetch(`${API_BASE}${path}`, { signal });
-
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw new Error(locale.errors.playerNotFound);
-    }
-    if (response.status === 429) {
-      throw new Error(locale.errors.rateLimit);
-    }
-    throw new Error(locale.errors.httpFailed(response.status));
-  }
-
-  return response.json();
-};
-
-const getHeroesMap = async (signal, locale) => {
-  if (heroesCache) {
-    return heroesCache;
-  }
-
-  const heroes = await fetchJson('/heroes', signal, locale);
-  heroesCache = heroes.reduce((map, hero) => {
-    map.set(hero.id, hero.localized_name);
-    return map;
-  }, new Map());
-
-  return heroesCache;
 };
 
 const buildDailyWinRate = (matches, days) => {
@@ -251,16 +207,28 @@ const buildRankDistribution = (matches, locale) => {
 
 export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang = 'zh') => {
   const locale = getLocaleConfig(lang);
+  const client = createOpenDotaClient(lang);
 
   const [player, matches, heroesMap] = await Promise.all([
-    fetchJson(`/players/${accountId}`, signal, locale),
-    fetchJson(`/players/${accountId}/matches?date=${days}`, signal, locale),
-    getHeroesMap(signal, locale),
+    client.getPlayer(accountId, signal),
+    client.getPlayerMatchesByDays(accountId, days, signal),
+    client.getHeroesMap(signal),
   ]);
 
-  const validMatches = Array.isArray(matches) ? matches.filter((item) => item.start_time) : [];
+  const validMatches = matches.filter((item) => item.start_time);
   if (validMatches.length === 0) {
-    throw new Error(locale.errors.noMatches(days));
+    const latestMatches = await client.getPlayerLatestMatches(accountId, 1, signal);
+    const latestMatchStartTime = latestMatches[0]?.start_time ?? null;
+
+    return {
+      playerName: player?.profile?.personaname ?? locale.playerFallback(accountId),
+      heroPerformance: [],
+      dailyWinRate: [],
+      rankDistribution: [],
+      metrics: summarizeDashboard([]),
+      totalMatches: 0,
+      latestMatchStartTime,
+    };
   }
 
   const heroPerformance = buildHeroPerformance(validMatches, heroesMap, locale);
@@ -274,5 +242,6 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     rankDistribution,
     metrics: summarizeDashboard(heroPerformance),
     totalMatches: validMatches.length,
+    latestMatchStartTime: validMatches[0]?.start_time ?? null,
   };
 };

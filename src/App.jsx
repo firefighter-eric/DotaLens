@@ -3,13 +3,22 @@ import StatCard from './components/StatCard.jsx';
 import WinRateTrend from './components/WinRateTrend.jsx';
 import HeroPerformanceTable from './components/HeroPerformanceTable.jsx';
 import RankDistribution from './components/RankDistribution.jsx';
+import RoleDistribution from './components/RoleDistribution.jsx';
 import { dailyWinRate, heroPerformance, rankDistribution } from './data/mockDotaData.js';
-import { summarizeDashboard } from './utils/metrics.js';
+import { buildRoleDistribution, summarizeDashboard } from './utils/metrics.js';
 import { fetchPlayerWindowAnalytics } from './services/opendota.js';
 import { getCopy } from './i18n/copy.js';
 
 const MAX_UINT32 = 4294967295n;
 const DEFAULT_STEAM32_ID = '898754153';
+const DEFAULT_SAMPLE_PLAYER_NAME = getCopy('zh').misc.samplePlayerName;
+const MAX_SAVED_ACCOUNTS = 5;
+const TAB_IDS = {
+  overview: 'overview',
+  heroes: 'heroes',
+  trend: 'trend',
+  rankRole: 'rankRole',
+};
 
 const createMockDashboard = (copy) => {
   const metrics = summarizeDashboard(heroPerformance);
@@ -67,17 +76,92 @@ const parseSteam32 = (value, copy) => {
   }
 };
 
+const formatMatchDate = (startTime, lang) => {
+  if (!startTime) {
+    return '';
+  }
+
+  const locale = lang === 'en' ? 'en-US' : 'zh-CN';
+  return new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(startTime * 1000));
+};
+
+const compareHeroes = (a, b, sortKey, sortDir, lang) => {
+  const factor = sortDir === 'asc' ? 1 : -1;
+  const locale = lang === 'en' ? 'en' : 'zh';
+
+  const getValue = (hero) => {
+    if (sortKey === 'hero') {
+      return hero.hero;
+    }
+    if (sortKey === 'matches') {
+      return hero.matches;
+    }
+    if (sortKey === 'winRate') {
+      return hero.matches ? hero.wins / hero.matches : 0;
+    }
+    if (sortKey === 'avgKda') {
+      return hero.avgKda;
+    }
+    if (sortKey === 'avgGpm') {
+      return hero.avgGpm;
+    }
+    return hero.impact;
+  };
+
+  const av = getValue(a);
+  const bv = getValue(b);
+
+  if (typeof av === 'string' && typeof bv === 'string') {
+    const base = av.localeCompare(bv, locale);
+    if (base !== 0) {
+      return base * factor;
+    }
+    return a.hero.localeCompare(b.hero, locale);
+  }
+
+  if (av !== bv) {
+    return (av - bv) * factor;
+  }
+
+  return a.hero.localeCompare(b.hero, locale);
+};
+
+const escapeCsvCell = (value) => {
+  const text = String(value ?? '');
+  return `"${text.replace(/"/g, '""')}"`;
+};
+
+const isSameAccount = (a, b) => a.accountId === b.accountId && a.rawId === b.rawId && a.idType === b.idType;
+
 function App() {
   const [lang, setLang] = useState('zh');
   const copy = useMemo(() => getCopy(lang), [lang]);
 
   const [inputAccountId, setInputAccountId] = useState(DEFAULT_STEAM32_ID);
   const [inputIdType, setInputIdType] = useState('steam');
+  const [savedAccounts, setSavedAccounts] = useState(() => [
+    {
+      idType: 'steam',
+      rawId: DEFAULT_STEAM32_ID,
+      accountId: DEFAULT_STEAM32_ID,
+      nickname: DEFAULT_SAMPLE_PLAYER_NAME,
+    },
+  ]);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [queryAccountId, setQueryAccountId] = useState(DEFAULT_STEAM32_ID);
   const [queryRawId, setQueryRawId] = useState(DEFAULT_STEAM32_ID);
   const [queryIdType, setQueryIdType] = useState('steam');
   const [reloadKey, setReloadKey] = useState(0);
   const [days, setDays] = useState(14);
+  const [activeTab, setActiveTab] = useState(TAB_IDS.overview);
+  const [sortKey, setSortKey] = useState('impact');
+  const [sortDir, setSortDir] = useState('desc');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [minMatches, setMinMatches] = useState(0);
   const [dashboard, setDashboard] = useState(() => createMockDashboard(getCopy('zh')));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -108,6 +192,16 @@ function App() {
           ...data,
           source: 'opendota',
         });
+        setSavedAccounts((prev) =>
+          prev.map((account) =>
+            account.accountId === queryAccountId
+              ? {
+                  ...account,
+                  nickname: data.playerName,
+                }
+              : account
+          )
+        );
       } catch (loadError) {
         if (loadError.name !== 'AbortError') {
           setError(loadError.message || copy.errors.fetchFailed);
@@ -126,6 +220,60 @@ function App() {
     };
   }, [queryAccountId, days, reloadKey, lang, copy.errors.fetchFailed]);
 
+  const availableRoles = useMemo(() => {
+    const roleSet = new Set(dashboard.heroPerformance.map((item) => item.role).filter(Boolean));
+    return Array.from(roleSet).sort((a, b) => a.localeCompare(b, lang === 'en' ? 'en' : 'zh'));
+  }, [dashboard.heroPerformance, lang]);
+
+  useEffect(() => {
+    if (roleFilter !== 'all' && !availableRoles.includes(roleFilter)) {
+      setRoleFilter('all');
+    }
+  }, [availableRoles, roleFilter]);
+
+  const filteredHeroes = useMemo(() => {
+    return dashboard.heroPerformance
+      .filter((hero) => (roleFilter === 'all' ? true : hero.role === roleFilter))
+      .filter((hero) => hero.matches >= minMatches)
+      .slice()
+      .sort((a, b) => compareHeroes(a, b, sortKey, sortDir, lang));
+  }, [dashboard.heroPerformance, lang, minMatches, roleFilter, sortDir, sortKey]);
+
+  const roleDistribution = useMemo(() => buildRoleDistribution(dashboard.heroPerformance), [dashboard.heroPerformance]);
+
+  const trendSummary = useMemo(() => {
+    if (!dashboard.dailyWinRate.length) {
+      return null;
+    }
+    const values = dashboard.dailyWinRate.map((point) => point.value);
+    return {
+      latest: dashboard.dailyWinRate[dashboard.dailyWinRate.length - 1].value,
+      peak: Math.max(...values),
+      bottom: Math.min(...values),
+    };
+  }, [dashboard.dailyWinRate]);
+
+  const switchToAccount = (account, forceRefresh = false) => {
+    setInputIdType(account.idType);
+    setInputAccountId(account.rawId);
+    setError('');
+
+    if (
+      account.accountId === queryAccountId &&
+      account.rawId === queryRawId &&
+      account.idType === queryIdType
+    ) {
+      if (forceRefresh) {
+        setReloadKey((value) => value + 1);
+      }
+      return;
+    }
+
+    setQueryAccountId(account.accountId);
+    setQueryRawId(account.rawId);
+    setQueryIdType(account.idType);
+  };
+
   const handleSubmit = (event) => {
     event.preventDefault();
     const normalizedId = inputAccountId.trim();
@@ -138,20 +286,107 @@ function App() {
     }
 
     const { accountId } = parseResult;
-    setError('');
-    if (accountId === queryAccountId && queryRawId === normalizedId && queryIdType === inputIdType) {
-      setReloadKey((value) => value + 1);
+    const nextAccount = {
+      idType: inputIdType,
+      rawId: normalizedId,
+      accountId,
+      nickname: normalizedId,
+    };
+
+    const hasSaved = savedAccounts.some((item) => isSameAccount(item, nextAccount));
+    if (!hasSaved && savedAccounts.length >= MAX_SAVED_ACCOUNTS) {
+      setError(copy.errors.accountLimit(MAX_SAVED_ACCOUNTS));
       return;
     }
-    setQueryAccountId(accountId);
-    setQueryRawId(normalizedId);
-    setQueryIdType(inputIdType);
+
+    if (!hasSaved) {
+      setSavedAccounts((prev) => [nextAccount, ...prev].slice(0, MAX_SAVED_ACCOUNTS));
+    }
+
+    setError('');
+    switchToAccount(nextAccount, true);
+    setIsAccountModalOpen(false);
   };
+
+  const handleSwitchAccount = (account) => {
+    switchToAccount(account, false);
+    setIsAccountModalOpen(false);
+  };
+
+  const handleRemoveSavedAccount = (account) => {
+    if (savedAccounts.length <= 1) {
+      return;
+    }
+
+    const next = savedAccounts.filter((item) => !isSameAccount(item, account));
+    if (next.length === savedAccounts.length) {
+      return;
+    }
+
+    setSavedAccounts(next);
+    const activeAccount = { idType: queryIdType, rawId: queryRawId, accountId: queryAccountId };
+    if (isSameAccount(account, activeAccount)) {
+      switchToAccount(next[0], false);
+    }
+  };
+
+  const handleMinMatchesChange = (value) => {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isNaN(parsed) || parsed < 0) {
+      setMinMatches(0);
+      return;
+    }
+    setMinMatches(parsed);
+  };
+
+  const handleExportHeroes = () => {
+    if (!filteredHeroes.length) {
+      return;
+    }
+
+    const header = copy.table.headers;
+    const rows = [
+      [header.hero, header.role, header.matches, header.winRate, header.avgKda, header.avgGpm, header.impact],
+      ...filteredHeroes.map((hero) => [
+        hero.hero,
+        hero.role,
+        hero.matches,
+        `${((hero.wins / Math.max(1, hero.matches)) * 100).toFixed(1)}%`,
+        hero.avgKda,
+        hero.avgGpm,
+        hero.impact,
+      ]),
+    ];
+
+    const csv = rows.map((row) => row.map((cell) => escapeCsvCell(cell)).join(',')).join('\n');
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `dotalens-${queryAccountId || 'sample'}-${days}d-heroes.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const tabItems = [
+    { id: TAB_IDS.overview, label: copy.tabs.overview },
+    { id: TAB_IDS.heroes, label: copy.tabs.heroes },
+    { id: TAB_IDS.trend, label: copy.tabs.trend },
+    { id: TAB_IDS.rankRole, label: copy.tabs.rankRole },
+  ];
 
   const statusLine = error
     ? error
     : queryAccountId
-      ? queryIdType === 'steam'
+      ? dashboard.source === 'opendota' && dashboard.totalMatches === 0
+        ? copy.status.noRecentMatches({
+            playerName: dashboard.playerName,
+            days,
+            latestMatchDate: formatMatchDate(dashboard.latestMatchStartTime, lang),
+          })
+        : queryIdType === 'steam'
         ? copy.status.steam({
             playerName: dashboard.playerName,
             rawId: queryRawId,
@@ -167,6 +402,19 @@ function App() {
       : copy.status.mock;
 
   const bestHero = dashboard.metrics.bestHero;
+  const topRole = roleDistribution[0]?.role;
+  const activeAccount = savedAccounts.find(
+    (account) => account.accountId === queryAccountId && account.rawId === queryRawId && account.idType === queryIdType
+  );
+  const activeAccountNickname = activeAccount?.nickname || dashboard.playerName || queryRawId || copy.query.unknownNickname;
+  const overviewInsights = [
+    copy.overview.insightWinRate({
+      overallWinRate: dashboard.metrics.overallWinRate,
+      totalMatches: dashboard.metrics.totalMatches,
+    }),
+    copy.overview.insightBestHero(bestHero.hero),
+    topRole ? copy.overview.insightTopRole(topRole) : copy.overview.insightTopRoleFallback,
+  ];
 
   return (
     <div className="app-shell">
@@ -174,30 +422,56 @@ function App() {
         <div className="hero-header__content">
           <div className="hero-top">
             <p className="eyebrow">{copy.app.eyebrow}</p>
-            <div className="language-switch" role="group" aria-label={copy.app.languageLabel}>
+            <div className="hero-top-actions">
+              <div className="language-switch" role="group" aria-label={copy.app.languageLabel}>
+                <button
+                  type="button"
+                  className={lang === 'zh' ? 'is-active' : ''}
+                  onClick={() => setLang('zh')}
+                  disabled={loading}
+                >
+                  {copy.app.languages.zh}
+                </button>
+                <button
+                  type="button"
+                  className={lang === 'en' ? 'is-active' : ''}
+                  onClick={() => setLang('en')}
+                  disabled={loading}
+                >
+                  {copy.app.languages.en}
+                </button>
+              </div>
               <button
                 type="button"
-                className={lang === 'zh' ? 'is-active' : ''}
-                onClick={() => setLang('zh')}
-                disabled={loading}
+                className="account-summary-btn"
+                onClick={() => setIsAccountModalOpen(true)}
+                aria-label={copy.query.openAccountModal}
               >
-                {copy.app.languages.zh}
-              </button>
-              <button
-                type="button"
-                className={lang === 'en' ? 'is-active' : ''}
-                onClick={() => setLang('en')}
-                disabled={loading}
-              >
-                {copy.app.languages.en}
+                <span className="account-summary-name">{activeAccountNickname}</span>
               </button>
             </div>
           </div>
 
           <h1>{copy.app.title}</h1>
           <p className="description">{copy.app.description}</p>
+          <p className={`status-line ${error ? 'is-error' : ''}`}>{statusLine}</p>
+        </div>
+      </header>
 
-          <section className="query-panel">
+      {isAccountModalOpen ? (
+        <div className="account-modal-backdrop" onClick={() => setIsAccountModalOpen(false)} role="presentation">
+          <section className="query-panel account-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="account-modal-header">
+              <p className="account-panel-title">{copy.query.accountModalTitle}</p>
+              <button
+                type="button"
+                className="account-modal-close"
+                onClick={() => setIsAccountModalOpen(false)}
+                aria-label={copy.query.closeAccountModal}
+              >
+                ×
+              </button>
+            </div>
             <form className="query-form" onSubmit={handleSubmit}>
               <label htmlFor="account-id-input">{copy.query.idTypeLabel}</label>
               <div className="id-type-switch" role="group" aria-label={copy.query.idTypeLabel}>
@@ -231,8 +505,48 @@ function App() {
                   {loading ? copy.query.loading : copy.query.submit}
                 </button>
               </div>
-              <p className="id-hint">{copy.query.hints[inputIdType]}</p>
+              <div className="saved-accounts-head">
+                <span>{copy.query.savedAccounts(savedAccounts.length, MAX_SAVED_ACCOUNTS)}</span>
+                <span>{copy.query.savedAccountsHint}</span>
+              </div>
+              <div className="saved-accounts" role="list" aria-label={copy.query.savedAccountsAriaLabel}>
+                {savedAccounts.map((account) => {
+                  const isActive =
+                    account.accountId === queryAccountId &&
+                    account.rawId === queryRawId &&
+                    account.idType === queryIdType;
+
+                  return (
+                    <div key={`${account.idType}:${account.rawId}`} className={`saved-account-item ${isActive ? 'is-active' : ''}`}>
+                      <button
+                        type="button"
+                        className="saved-account-btn"
+                        onClick={() => handleSwitchAccount(account)}
+                        disabled={loading}
+                      >
+                        <span className="saved-account-name">{account.nickname || account.rawId}</span>
+                        <span className="saved-account-meta">
+                          {copy.query.idTypes[account.idType]} · {account.rawId}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="saved-account-remove"
+                        onClick={() => handleRemoveSavedAccount(account)}
+                        disabled={loading || savedAccounts.length <= 1}
+                        aria-label={copy.query.removeSavedAccount}
+                        title={copy.query.removeSavedAccount}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
               <div className="range-switch" role="group" aria-label={copy.query.rangeAriaLabel}>
+                <button type="button" className={days === 7 ? 'is-active' : ''} onClick={() => setDays(7)} disabled={loading}>
+                  {copy.query.day7}
+                </button>
                 <button
                   type="button"
                   className={days === 14 ? 'is-active' : ''}
@@ -251,45 +565,131 @@ function App() {
                 </button>
               </div>
             </form>
-            <p className={`status-line ${error ? 'is-error' : ''}`}>{statusLine}</p>
           </section>
         </div>
-      </header>
+      ) : null}
 
       <main className="dashboard">
-        <section className="stats-grid">
-          <StatCard
-            label={copy.cards.totalMatches}
-            value={dashboard.metrics.totalMatches}
-            subtext={copy.cards.totalMatchesSubtext(days)}
-            accent="gold"
-          />
-          <StatCard
-            label={copy.cards.overallWinRate}
-            value={`${dashboard.metrics.overallWinRate}%`}
-            subtext={copy.cards.overallWinRateSubtext}
-            accent="teal"
-          />
-          <StatCard
-            label={copy.cards.avgKda}
-            value={dashboard.metrics.avgKda}
-            subtext={copy.cards.avgKdaSubtext}
-            accent="red"
-          />
-          <StatCard
-            label={copy.cards.bestHero}
-            value={bestHero.hero}
-            subtext={copy.cards.bestHeroSubtext({ impact: bestHero.impact, avgGpm: bestHero.avgGpm })}
-            accent="blue"
-          />
+        <section className="tabs-panel">
+          <div className="tabs-row" role="tablist" aria-label={copy.tabs.ariaLabel}>
+            {tabItems.map((item) => (
+              <button
+                key={item.id}
+                id={`tab-${item.id}`}
+                role="tab"
+                type="button"
+                className={`tab-btn ${activeTab === item.id ? 'is-active' : ''}`}
+                aria-selected={activeTab === item.id}
+                aria-controls={`panel-${item.id}`}
+                onClick={() => setActiveTab(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </section>
 
-        <section className="two-cols">
-          <WinRateTrend data={dashboard.dailyWinRate} days={days} copy={copy.trend} />
-          <RankDistribution items={dashboard.rankDistribution} days={days} copy={copy.rank} />
-        </section>
+        {activeTab === TAB_IDS.overview ? (
+          <section
+            id={`panel-${TAB_IDS.overview}`}
+            role="tabpanel"
+            aria-labelledby={`tab-${TAB_IDS.overview}`}
+            className="tab-content"
+          >
+            <section className="panel overview-panel">
+              <div className="panel-header">
+                <h2>{copy.overview.title}</h2>
+                <span className="panel-tag">{copy.overview.tag(days)}</span>
+              </div>
+              <p className="overview-title">{copy.overview.highlightsTitle}</p>
+              <ul className="overview-insights">
+                {overviewInsights.map((text) => (
+                  <li key={text}>{text}</li>
+                ))}
+              </ul>
+            </section>
 
-        <HeroPerformanceTable heroes={dashboard.heroPerformance} copy={copy.table} />
+            <section className="stats-grid">
+              <StatCard
+                label={copy.cards.totalMatches}
+                value={dashboard.metrics.totalMatches}
+                subtext={copy.cards.totalMatchesSubtext(days)}
+                accent="gold"
+              />
+              <StatCard
+                label={copy.cards.overallWinRate}
+                value={`${dashboard.metrics.overallWinRate}%`}
+                subtext={copy.cards.overallWinRateSubtext}
+                accent="teal"
+              />
+              <StatCard label={copy.cards.avgKda} value={dashboard.metrics.avgKda} subtext={copy.cards.avgKdaSubtext} accent="red" />
+              <StatCard
+                label={copy.cards.bestHero}
+                value={bestHero.hero}
+                subtext={copy.cards.bestHeroSubtext({ impact: bestHero.impact, avgGpm: bestHero.avgGpm })}
+                accent="blue"
+              />
+            </section>
+
+            <section className="two-cols">
+              <WinRateTrend data={dashboard.dailyWinRate} days={days} copy={copy.trend} />
+              <RankDistribution items={dashboard.rankDistribution} days={days} copy={copy.rank} />
+            </section>
+          </section>
+        ) : null}
+
+        {activeTab === TAB_IDS.heroes ? (
+          <section id={`panel-${TAB_IDS.heroes}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.heroes}`} className="tab-content">
+            <HeroPerformanceTable
+              heroes={filteredHeroes}
+              roles={availableRoles}
+              controls={{ sortKey, sortDir, roleFilter, minMatches }}
+              onSortKeyChange={setSortKey}
+              onSortDirChange={setSortDir}
+              onRoleFilterChange={setRoleFilter}
+              onMinMatchesChange={handleMinMatchesChange}
+              onExport={handleExportHeroes}
+              copy={copy.table}
+            />
+          </section>
+        ) : null}
+
+        {activeTab === TAB_IDS.trend ? (
+          <section id={`panel-${TAB_IDS.trend}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.trend}`} className="tab-content">
+            <section className="two-cols">
+              <WinRateTrend data={dashboard.dailyWinRate} days={days} copy={copy.trend} />
+              <section className="panel trend-summary-panel">
+                <div className="panel-header">
+                  <h2>{copy.trend.detailTitle}</h2>
+                  <span className="panel-tag">{copy.trend.detailTag}</span>
+                </div>
+                {trendSummary ? (
+                  <ul className="overview-insights">
+                    <li>{copy.trend.detailLatest(trendSummary.latest)}</li>
+                    <li>{copy.trend.detailPeak(trendSummary.peak)}</li>
+                    <li>{copy.trend.detailBottom(trendSummary.bottom)}</li>
+                  </ul>
+                ) : (
+                  <p className="empty-text">{copy.trend.detailEmpty}</p>
+                )}
+              </section>
+            </section>
+          </section>
+        ) : null}
+
+        {activeTab === TAB_IDS.rankRole ? (
+          <section
+            id={`panel-${TAB_IDS.rankRole}`}
+            role="tabpanel"
+            aria-labelledby={`tab-${TAB_IDS.rankRole}`}
+            className="tab-content"
+          >
+            <section className="two-cols">
+              <RankDistribution items={dashboard.rankDistribution} days={days} copy={copy.rank} />
+              <RoleDistribution items={roleDistribution} days={days} copy={copy.role} />
+            </section>
+          </section>
+        ) : null}
       </main>
     </div>
   );

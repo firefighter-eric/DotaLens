@@ -11,6 +11,12 @@ const copy = {
       },
     },
     query: {
+      accountPanelTitle: '账号',
+      accountModalTitle: '账号登录与切换',
+      accountSummaryLabel: '当前账号',
+      openAccountModal: '打开账号弹窗',
+      closeAccountModal: '关闭账号弹窗',
+      unknownNickname: '未命名账号',
       idTypeLabel: '玩家 ID 类型',
       idTypes: {
         steam: 'Steam32',
@@ -27,8 +33,20 @@ const copy = {
         opendota: '使用 OpenDota 账号 ID（account_id）。',
       },
       rangeAriaLabel: '时间窗口切换',
+      day7: '7 天',
       day14: '14 天',
       day30: '30 天',
+      savedAccounts: (count, max) => `已登录账号 ${count}/${max}`,
+      savedAccountsHint: '点击快速切换',
+      savedAccountsAriaLabel: '已保存账号',
+      removeSavedAccount: '移除账号',
+    },
+    tabs: {
+      ariaLabel: '分析模块',
+      overview: '总览',
+      heroes: '英雄池',
+      trend: '趋势',
+      rankRole: '段位与分路',
     },
     status: {
       mock: '当前展示的是示例数据。输入 OpenDota ID 或 Steam32 后可查看真实对局分析。',
@@ -36,6 +54,19 @@ const copy = {
         `当前玩家：${playerName}（Steam32: ${rawId}），统计窗口：最近 ${days} 天，共 ${totalMatches} 场。`,
       opendota: ({ playerName, accountId, days, totalMatches }) =>
         `当前玩家：${playerName}（OpenDota ID: ${accountId}），统计窗口：最近 ${days} 天，共 ${totalMatches} 场。`,
+      noRecentMatches: ({ playerName, days, latestMatchDate }) =>
+        latestMatchDate
+          ? `当前玩家：${playerName}。最近 ${days} 天暂无公开对局，最近一场时间：${latestMatchDate}。`
+          : `当前玩家：${playerName}。最近 ${days} 天暂无公开对局。`,
+    },
+    overview: {
+      title: '总览摘要',
+      tag: (days) => `最近 ${days} 天`,
+      highlightsTitle: '关键结论',
+      insightWinRate: ({ overallWinRate, totalMatches }) => `最近 ${totalMatches} 场综合胜率为 ${overallWinRate}%。`,
+      insightBestHero: (hero) => `当前最高价值英雄为 ${hero}。`,
+      insightTopRole: (role) => `主要分路分布集中在 ${role}。`,
+      insightTopRoleFallback: '当前没有稳定分路分布。',
     },
     cards: {
       totalMatches: '总对局场次',
@@ -53,15 +84,26 @@ const copy = {
       noDataTag: '暂无可用数据',
       noDataText: '当前时间窗口没有对局数据。',
       ariaLabel: (days) => `${days}天胜率走势`,
+      detailTitle: '趋势解读',
+      detailTag: '窗口统计',
+      detailLatest: (value) => `最新值：${value}%`,
+      detailPeak: (value) => `峰值：${value}%`,
+      detailBottom: (value) => `低点：${value}%`,
+      detailEmpty: '当前没有足够数据生成趋势解读。',
     },
     rank: {
       title: '对局段位分布',
       tag: (days) => `最近 ${days} 天`,
       noDataText: '当前公开数据没有段位信息。',
     },
+    role: {
+      title: '分路分布',
+      tag: (days) => `最近 ${days} 天`,
+      noDataText: '当前公开数据没有可识别分路信息。',
+    },
     table: {
       title: '英雄表现对比',
-      tag: '按影响力排序',
+      tag: '支持排序/筛选/导出',
       headers: {
         hero: '英雄',
         role: '定位',
@@ -71,12 +113,34 @@ const copy = {
         avgGpm: '平均 GPM',
         impact: '影响力',
       },
-      empty: '当前时间窗口没有英雄统计数据。',
+      controls: {
+        sortLabel: '排序字段',
+        sortDirectionLabel: '排序方向',
+        roleLabel: '分路筛选',
+        minMatchesLabel: '最少场次',
+        export: '导出 CSV',
+        roleAll: '全部分路',
+        sortOptions: {
+          impact: '影响力',
+          matches: '场次',
+          winRate: '胜率',
+          avgKda: '平均 KDA',
+          avgGpm: '平均 GPM',
+          hero: '英雄名',
+        },
+        directionOptions: {
+          desc: '降序',
+          asc: '升序',
+        },
+        resultCount: (count) => `共 ${count} 个英雄`,
+      },
+      empty: '当前筛选条件下没有英雄统计数据。',
     },
     errors: {
       openDotaNumeric: '请输入纯数字的 OpenDota 用户 ID。',
       steamNumeric: 'Steam32 需要输入纯数字 ID。',
       steamInvalid: 'Steam32 格式不正确，请检查输入。',
+      accountLimit: (max) => `最多同时登录 ${max} 个账号，请先移除一个账号。`,
       fetchFailed: '拉取 OpenDota 数据失败，请稍后重试。',
     },
     misc: {
@@ -96,6 +160,12 @@ const copy = {
       },
     },
     query: {
+      accountPanelTitle: 'Accounts',
+      accountModalTitle: 'Sign In & Switch Accounts',
+      accountSummaryLabel: 'Current Account',
+      openAccountModal: 'Open account modal',
+      closeAccountModal: 'Close account modal',
+      unknownNickname: 'Unnamed Account',
       idTypeLabel: 'Player ID Type',
       idTypes: {
         steam: 'Steam32',
@@ -112,8 +182,20 @@ const copy = {
         opendota: 'Use OpenDota account_id.',
       },
       rangeAriaLabel: 'Time window switch',
+      day7: '7 Days',
       day14: '14 Days',
       day30: '30 Days',
+      savedAccounts: (count, max) => `Signed-in accounts ${count}/${max}`,
+      savedAccountsHint: 'Click to switch quickly',
+      savedAccountsAriaLabel: 'Saved accounts',
+      removeSavedAccount: 'Remove account',
+    },
+    tabs: {
+      ariaLabel: 'Analytics tabs',
+      overview: 'Overview',
+      heroes: 'Heroes',
+      trend: 'Trend',
+      rankRole: 'Rank & Role',
     },
     status: {
       mock: 'Showing sample data. Enter OpenDota ID or Steam32 to analyze real public matches.',
@@ -121,6 +203,20 @@ const copy = {
         `Player: ${playerName} (Steam32: ${rawId}), window: last ${days} days, ${totalMatches} matches.`,
       opendota: ({ playerName, accountId, days, totalMatches }) =>
         `Player: ${playerName} (OpenDota ID: ${accountId}), window: last ${days} days, ${totalMatches} matches.`,
+      noRecentMatches: ({ playerName, days, latestMatchDate }) =>
+        latestMatchDate
+          ? `Player: ${playerName}. No public matches in the last ${days} days. Latest match: ${latestMatchDate}.`
+          : `Player: ${playerName}. No public matches in the last ${days} days.`,
+    },
+    overview: {
+      title: 'Overview Snapshot',
+      tag: (days) => `Last ${days} Days`,
+      highlightsTitle: 'Key Insights',
+      insightWinRate: ({ overallWinRate, totalMatches }) =>
+        `Overall win rate is ${overallWinRate}% across ${totalMatches} matches.`,
+      insightBestHero: (hero) => `Top value hero is ${hero}.`,
+      insightTopRole: (role) => `Most-played role distribution centers on ${role}.`,
+      insightTopRoleFallback: 'No stable role distribution was found.',
     },
     cards: {
       totalMatches: 'Total Matches',
@@ -138,15 +234,26 @@ const copy = {
       noDataTag: 'No Data',
       noDataText: 'No matches found in this time window.',
       ariaLabel: (days) => `${days}-day win rate trend`,
+      detailTitle: 'Trend Summary',
+      detailTag: 'Window Stats',
+      detailLatest: (value) => `Latest: ${value}%`,
+      detailPeak: (value) => `Peak: ${value}%`,
+      detailBottom: (value) => `Bottom: ${value}%`,
+      detailEmpty: 'Not enough data to generate trend summary.',
     },
     rank: {
       title: 'Rank Distribution',
       tag: (days) => `Last ${days} Days`,
       noDataText: 'No public rank data in this time window.',
     },
+    role: {
+      title: 'Role Distribution',
+      tag: (days) => `Last ${days} Days`,
+      noDataText: 'No recognizable role data in this time window.',
+    },
     table: {
       title: 'Hero Performance Comparison',
-      tag: 'Sorted by impact',
+      tag: 'Sort / Filter / Export',
       headers: {
         hero: 'Hero',
         role: 'Role',
@@ -156,12 +263,34 @@ const copy = {
         avgGpm: 'Avg GPM',
         impact: 'Impact',
       },
-      empty: 'No hero stats available in this time window.',
+      controls: {
+        sortLabel: 'Sort by',
+        sortDirectionLabel: 'Direction',
+        roleLabel: 'Role',
+        minMatchesLabel: 'Min matches',
+        export: 'Export CSV',
+        roleAll: 'All Roles',
+        sortOptions: {
+          impact: 'Impact',
+          matches: 'Matches',
+          winRate: 'Win Rate',
+          avgKda: 'Avg KDA',
+          avgGpm: 'Avg GPM',
+          hero: 'Hero Name',
+        },
+        directionOptions: {
+          desc: 'Descending',
+          asc: 'Ascending',
+        },
+        resultCount: (count) => `${count} heroes`,
+      },
+      empty: 'No hero stats match the current filters.',
     },
     errors: {
       openDotaNumeric: 'OpenDota ID must be digits only.',
       steamNumeric: 'Steam32 must be digits only.',
       steamInvalid: 'Invalid Steam32 format.',
+      accountLimit: (max) => `You can sign in up to ${max} accounts. Remove one first.`,
       fetchFailed: 'Failed to fetch OpenDota data. Please try again later.',
     },
     misc: {
