@@ -17,6 +17,12 @@ npm run dev
 - `npm run build`：生产构建
 - `npm run preview`：本地预览构建结果
 - `npm run lint`：代码规范检查
+- `npm run sync:heroes`：同步 OpenDota 英雄名称与头像到本地
+
+同步后数据会落盘到：
+
+- `src/data/heroCatalog.js`（英雄 ID、名称、头像路径、来源 URL）
+- `public/assets/heroes/`（本地头像 PNG 文件）
 
 ## 当前功能
 

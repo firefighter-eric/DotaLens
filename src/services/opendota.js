@@ -120,13 +120,16 @@ const buildDailyWinRate = (matches, days) => {
   });
 };
 
-const buildHeroPerformance = (matches, heroesMap, locale) => {
+const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
   const aggregate = new Map();
 
   matches.forEach((match) => {
     const heroId = match.hero_id;
+    const heroMeta = heroesMetaMap.get(heroId);
     const record = aggregate.get(heroId) ?? {
-      hero: heroesMap.get(heroId) ?? `Hero #${heroId}`,
+      heroId,
+      hero: heroMeta?.name ?? `Hero #${heroId}`,
+      heroAvatar: heroMeta?.avatar ?? '',
       matches: 0,
       wins: 0,
       kills: 0,
@@ -157,7 +160,9 @@ const buildHeroPerformance = (matches, heroesMap, locale) => {
       const impact = clamp(Math.round(winRate * 0.55 + avgKda * 8 + avgGpm / 24), 0, 99);
 
       return {
+        heroId: record.heroId,
         hero: record.hero,
+        heroAvatar: record.heroAvatar,
         role: getMainRole(record.roleCount, locale.unknownRole),
         matches: record.matches,
         wins: record.wins,
@@ -209,10 +214,10 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
   const locale = getLocaleConfig(lang);
   const client = createOpenDotaClient(lang);
 
-  const [player, matches, heroesMap] = await Promise.all([
+  const [player, matches, heroesMetaMap] = await Promise.all([
     client.getPlayer(accountId, signal),
     client.getPlayerMatchesByDays(accountId, days, signal),
-    client.getHeroesMap(signal),
+    client.getHeroesMetaMap(signal),
   ]);
 
   const validMatches = matches.filter((item) => item.start_time);
@@ -231,7 +236,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     };
   }
 
-  const heroPerformance = buildHeroPerformance(validMatches, heroesMap, locale);
+  const heroPerformance = buildHeroPerformance(validMatches, heroesMetaMap, locale);
   const dailyWinRate = buildDailyWinRate(validMatches, days);
   const rankDistribution = buildRankDistribution(validMatches, locale);
 

@@ -122,8 +122,13 @@ function HeroPerformanceTable({
           <tbody>
             {heroes.length > 0 ? (
               heroes.map((hero) => (
-                <tr key={hero.hero}>
-                  <td>{hero.hero}</td>
+                <tr key={hero.heroId ?? hero.hero}>
+                  <td>
+                    <div className="hero-name-cell">
+                      {hero.heroAvatar ? <img src={hero.heroAvatar} alt={hero.hero} className="hero-avatar" loading="lazy" /> : null}
+                      <span>{hero.hero}</span>
+                    </div>
+                  </td>
                   <td>{hero.role}</td>
                   <td>{hero.matches}</td>
                   <td>{toPercent(hero.wins, hero.matches)}%</td>

@@ -1,4 +1,7 @@
+import { heroCatalog } from '../data/heroCatalog.js';
+
 const API_BASE = 'https://api.opendota.com/api';
+const OPEN_DOTA_SITE = 'https://www.opendota.com';
 
 const requestLocaleConfig = {
   zh: {
@@ -17,7 +20,7 @@ const requestLocaleConfig = {
   },
 };
 
-let heroesCache = null;
+let heroesMetaCache = null;
 
 const getRequestLocaleConfig = (lang) => requestLocaleConfig[lang] ?? requestLocaleConfig.zh;
 
@@ -47,20 +50,53 @@ const fetchJson = async (path, signal, locale) => {
 
 const toArray = (value) => (Array.isArray(value) ? value : []);
 
-const getHeroesMap = async (signal, locale) => {
-  if (heroesCache) {
-    return heroesCache;
+const toAbsoluteUrl = (value) => {
+  if (!value) {
+    return '';
   }
+  return new URL(value, OPEN_DOTA_SITE).toString();
+};
 
-  const heroes = toArray(await fetchJson('/heroes', signal, locale));
-  heroesCache = heroes.reduce((map, hero) => {
-    if (hero?.id != null) {
-      map.set(hero.id, hero.localized_name);
-    }
+const buildPersistedHeroesMetaMap = () =>
+  heroCatalog.reduce((map, hero) => {
+    map.set(hero.id, {
+      name: hero.name,
+      avatar: hero.avatar,
+      avatarSource: hero.avatarSource,
+    });
     return map;
   }, new Map());
 
-  return heroesCache;
+const mergeHeroesMeta = (heroes, persistedMap) => {
+  const merged = new Map(persistedMap);
+  heroes.forEach((hero) => {
+    if (hero?.id != null) {
+      const existing = merged.get(hero.id);
+      merged.set(hero.id, {
+        name: hero.localized_name ?? existing?.name ?? `Hero #${hero.id}`,
+        avatar: existing?.avatar ?? '',
+        avatarSource: existing?.avatarSource ?? toAbsoluteUrl(hero.img),
+      });
+    }
+  });
+  return merged;
+};
+
+const getHeroesMetaMap = async (signal, locale) => {
+  if (heroesMetaCache) {
+    return heroesMetaCache;
+  }
+
+  const persistedMap = buildPersistedHeroesMetaMap();
+
+  try {
+    const heroes = toArray(await fetchJson('/heroes', signal, locale));
+    heroesMetaCache = mergeHeroesMeta(heroes, persistedMap);
+  } catch {
+    heroesMetaCache = persistedMap;
+  }
+
+  return heroesMetaCache;
 };
 
 export const createOpenDotaClient = (lang = 'zh') => {
@@ -78,6 +114,6 @@ export const createOpenDotaClient = (lang = 'zh') => {
       const matches = await fetchJson(`/players/${accountId}/matches?limit=${safeLimit}&significant=0`, signal, locale);
       return toArray(matches);
     },
-    getHeroesMap: (signal) => getHeroesMap(signal, locale),
+    getHeroesMetaMap: (signal) => getHeroesMetaMap(signal, locale),
   };
 };
