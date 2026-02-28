@@ -2,6 +2,7 @@ import { summarizeDashboard } from '../utils/metrics.js';
 import { createOpenDotaClient } from './opendotaClient.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const RECENT_MATCH_FETCH_LIMIT = 30;
 
 const localeConfig = {
   zh: {
@@ -28,6 +29,7 @@ const localeConfig = {
     },
     roamingRole: '游走',
     unknownRole: '未标注',
+    unknownRank: '未知',
     playerFallback: (accountId) => `玩家 ${accountId}`,
   },
   en: {
@@ -54,6 +56,7 @@ const localeConfig = {
     },
     roamingRole: 'Roaming',
     unknownRole: 'Unlabeled',
+    unknownRank: 'Unknown',
     playerFallback: (accountId) => `Player ${accountId}`,
   },
 };
@@ -80,6 +83,18 @@ const getDayStart = (value) => {
 const getMainRole = (roleCount, unknownRole) => {
   const sorted = Object.entries(roleCount).sort((a, b) => b[1] - a[1]);
   return sorted[0]?.[0] ?? unknownRole;
+};
+
+const resolveRole = (match, locale) =>
+  locale.laneRoleMap[match.lane_role] ?? (match.is_roaming ? locale.roamingRole : locale.unknownRole);
+
+const resolveRank = (match, locale) => {
+  const rankTier = match.average_rank ?? match.average_rank_tier ?? match.rank_tier;
+  if (rankTier) {
+    const major = Math.floor(rankTier / 10);
+    return locale.rankTierMap[major] ?? locale.unknownRank;
+  }
+  return locale.skillMap[match.skill] ?? locale.unknownRank;
 };
 
 const buildDailyWinRate = (matches, days) => {
@@ -146,7 +161,7 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
     record.assists += match.assists ?? 0;
     record.gpm += match.gold_per_min ?? 0;
 
-    const role = locale.laneRoleMap[match.lane_role] ?? (match.is_roaming ? locale.roamingRole : locale.unknownRole);
+    const role = resolveRole(match, locale);
     record.roleCount[role] = (record.roleCount[role] ?? 0) + 1;
 
     aggregate.set(heroId, record);
@@ -173,6 +188,37 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
     })
     .sort((a, b) => b.matches - a.matches);
 };
+
+const buildRecentMatches = (matches, heroesMetaMap, locale, limit = RECENT_MATCH_FETCH_LIMIT) =>
+  matches
+    .filter((match) => match.start_time && match.match_id)
+    .slice()
+    .sort((a, b) => b.start_time - a.start_time)
+    .slice(0, limit)
+    .map((match) => {
+      const heroMeta = heroesMetaMap.get(match.hero_id);
+      const kills = match.kills ?? 0;
+      const deaths = match.deaths ?? 0;
+      const assists = match.assists ?? 0;
+
+      return {
+        matchId: match.match_id,
+        startTime: match.start_time,
+        heroId: match.hero_id,
+        hero: heroMeta?.name ?? `Hero #${match.hero_id}`,
+        heroAvatar: heroMeta?.avatar ?? '',
+        result: isMatchWin(match) ? 'win' : 'loss',
+        kills,
+        deaths,
+        assists,
+        kda: Number(((kills + assists) / Math.max(1, deaths)).toFixed(2)),
+        goldPerMin: match.gold_per_min ?? 0,
+        xpPerMin: match.xp_per_min ?? 0,
+        durationSec: match.duration ?? 0,
+        laneRole: resolveRole(match, locale),
+        rank: resolveRank(match, locale),
+      };
+    });
 
 const buildRankDistribution = (matches, locale) => {
   const tierCounter = new Map();
@@ -214,25 +260,25 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
   const locale = getLocaleConfig(lang);
   const client = createOpenDotaClient(lang);
 
-  const [player, matches, heroesMetaMap] = await Promise.all([
+  const [player, matches, latestMatches, heroesMetaMap] = await Promise.all([
     client.getPlayer(accountId, signal),
     client.getPlayerMatchesByDays(accountId, days, signal),
+    client.getPlayerLatestMatches(accountId, RECENT_MATCH_FETCH_LIMIT, signal).catch(() => []),
     client.getHeroesMetaMap(signal),
   ]);
 
+  const recentMatches = buildRecentMatches(latestMatches, heroesMetaMap, locale);
   const validMatches = matches.filter((item) => item.start_time);
   if (validMatches.length === 0) {
-    const latestMatches = await client.getPlayerLatestMatches(accountId, 1, signal);
-    const latestMatchStartTime = latestMatches[0]?.start_time ?? null;
-
     return {
       playerName: player?.profile?.personaname ?? locale.playerFallback(accountId),
       heroPerformance: [],
       dailyWinRate: [],
       rankDistribution: [],
+      recentMatches,
       metrics: summarizeDashboard([]),
       totalMatches: 0,
-      latestMatchStartTime,
+      latestMatchStartTime: recentMatches[0]?.startTime ?? null,
     };
   }
 
@@ -245,6 +291,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     heroPerformance,
     dailyWinRate,
     rankDistribution,
+    recentMatches,
     metrics: summarizeDashboard(heroPerformance),
     totalMatches: validMatches.length,
     latestMatchStartTime: validMatches[0]?.start_time ?? null,

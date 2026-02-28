@@ -4,8 +4,9 @@ import WinRateTrend from './components/WinRateTrend.jsx';
 import HeroPerformanceTable from './components/HeroPerformanceTable.jsx';
 import RankDistribution from './components/RankDistribution.jsx';
 import RoleDistribution from './components/RoleDistribution.jsx';
-import { dailyWinRate, heroPerformance, rankDistribution } from './data/mockDotaData.js';
-import { buildRoleDistribution, summarizeDashboard } from './utils/metrics.js';
+import RecentMatchesPanel from './components/RecentMatchesPanel.jsx';
+import { dailyWinRate, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
+import { buildRoleDistribution, summarizeDashboard, summarizeRecentMatches } from './utils/metrics.js';
 import { fetchPlayerWindowAnalytics } from './services/opendota.js';
 import { getCopy } from './i18n/copy.js';
 
@@ -13,11 +14,14 @@ const MAX_UINT32 = 4294967295n;
 const DEFAULT_STEAM32_ID = '898754153';
 const DEFAULT_SAMPLE_PLAYER_NAME = getCopy('zh').misc.samplePlayerName;
 const MAX_SAVED_ACCOUNTS = 5;
+const RECENT_MATCH_OPTIONS = [10, 20, 30];
+const DEFAULT_RECENT_MATCH_LIMIT = 10;
 const TAB_IDS = {
   overview: 'overview',
   heroes: 'heroes',
   trend: 'trend',
   rankRole: 'rankRole',
+  recentMatches: 'recentMatches',
 };
 
 const createMockDashboard = (copy) => {
@@ -29,6 +33,7 @@ const createMockDashboard = (copy) => {
     heroPerformance,
     dailyWinRate,
     rankDistribution,
+    recentMatches,
     metrics,
   };
 };
@@ -158,6 +163,7 @@ function App() {
   const [reloadKey, setReloadKey] = useState(0);
   const [days, setDays] = useState(14);
   const [activeTab, setActiveTab] = useState(TAB_IDS.overview);
+  const [recentMatchesLimit, setRecentMatchesLimit] = useState(DEFAULT_RECENT_MATCH_LIMIT);
   const [sortKey, setSortKey] = useState('impact');
   const [sortDir, setSortDir] = useState('desc');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -252,6 +258,11 @@ function App() {
       bottom: Math.min(...values),
     };
   }, [dashboard.dailyWinRate]);
+  const visibleRecentMatches = useMemo(
+    () => (dashboard.recentMatches ?? []).slice(0, recentMatchesLimit),
+    [dashboard.recentMatches, recentMatchesLimit]
+  );
+  const recentMatchSummary = useMemo(() => summarizeRecentMatches(visibleRecentMatches), [visibleRecentMatches]);
 
   const switchToAccount = (account, forceRefresh = false) => {
     setInputIdType(account.idType);
@@ -371,10 +382,11 @@ function App() {
   };
 
   const tabItems = [
-    { id: TAB_IDS.overview, label: copy.tabs.overview },
+    { id: TAB_IDS.recentMatches, label: copy.tabs.recentMatches },
     { id: TAB_IDS.heroes, label: copy.tabs.heroes },
     { id: TAB_IDS.trend, label: copy.tabs.trend },
     { id: TAB_IDS.rankRole, label: copy.tabs.rankRole },
+    { id: TAB_IDS.overview, label: copy.tabs.overview },
   ];
 
   const statusLine = error
@@ -688,6 +700,25 @@ function App() {
               <RankDistribution items={dashboard.rankDistribution} days={days} copy={copy.rank} />
               <RoleDistribution items={roleDistribution} days={days} copy={copy.role} />
             </section>
+          </section>
+        ) : null}
+
+        {activeTab === TAB_IDS.recentMatches ? (
+          <section
+            id={`panel-${TAB_IDS.recentMatches}`}
+            role="tabpanel"
+            aria-labelledby={`tab-${TAB_IDS.recentMatches}`}
+            className="tab-content"
+          >
+            <RecentMatchesPanel
+              matches={visibleRecentMatches}
+              summary={recentMatchSummary}
+              copy={copy.recentMatches}
+              lang={lang}
+              limit={recentMatchesLimit}
+              options={RECENT_MATCH_OPTIONS}
+              onLimitChange={setRecentMatchesLimit}
+            />
           </section>
         ) : null}
       </main>

@@ -66,3 +66,36 @@ export const buildRoleDistribution = (heroData) => {
     }))
     .sort((a, b) => b.ratio - a.ratio);
 };
+
+export const summarizeRecentMatches = (matches) => {
+  if (!matches.length) {
+    return {
+      total: 0,
+      wins: 0,
+      winRate: '0.0',
+      avgKda: '0.00',
+      avgGpm: 0,
+      avgDurationMin: 0,
+    };
+  }
+
+  const totals = matches.reduce(
+    (acc, match) => {
+      acc.wins += match.result === 'win' ? 1 : 0;
+      acc.kda += match.kda ?? 0;
+      acc.gpm += match.goldPerMin ?? 0;
+      acc.durationSec += match.durationSec ?? 0;
+      return acc;
+    },
+    { wins: 0, kda: 0, gpm: 0, durationSec: 0 }
+  );
+
+  return {
+    total: matches.length,
+    wins: totals.wins,
+    winRate: toPercent(totals.wins, matches.length),
+    avgKda: (totals.kda / matches.length).toFixed(2),
+    avgGpm: Math.round(totals.gpm / matches.length),
+    avgDurationMin: Math.round(totals.durationSec / matches.length / 60),
+  };
+};
