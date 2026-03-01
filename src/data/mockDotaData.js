@@ -1,6 +1,7 @@
 export const heroPerformance = [
   {
     hero: 'Juggernaut',
+    attribute: 'Agility',
     role: 'Carry',
     matches: 38,
     wins: 24,
@@ -12,6 +13,7 @@ export const heroPerformance = [
   },
   {
     hero: 'Invoker',
+    attribute: 'Universal',
     role: 'Mid',
     matches: 33,
     wins: 18,
@@ -23,6 +25,7 @@ export const heroPerformance = [
   },
   {
     hero: 'Lion',
+    attribute: 'Intelligence',
     role: 'Support',
     matches: 41,
     wins: 23,
@@ -34,6 +37,7 @@ export const heroPerformance = [
   },
   {
     hero: 'Mars',
+    attribute: 'Strength',
     role: 'Offlane',
     matches: 27,
     wins: 17,
@@ -45,6 +49,7 @@ export const heroPerformance = [
   },
   {
     hero: 'Rubick',
+    attribute: 'Intelligence',
     role: 'Soft Support',
     matches: 30,
     wins: 14,
@@ -56,6 +61,7 @@ export const heroPerformance = [
   },
   {
     hero: 'Phantom Assassin',
+    attribute: 'Agility',
     role: 'Carry',
     matches: 24,
     wins: 16,

@@ -12,6 +12,7 @@ import { heroCatalog } from './data/heroCatalog.js';
 import { itemCatalog } from './data/itemCatalog.js';
 import { buildRoleDistribution, summarizeDashboard, summarizeRecentMatches } from './utils/metrics.js';
 import { fetchPlayerWindowAnalytics, fetchRecentMatchDetail } from './services/opendota.js';
+import { createOpenDotaClient } from './services/opendotaClient.js';
 import { getCopy } from './i18n/copy.js';
 
 const MAX_UINT32 = 4294967295n;
@@ -31,18 +32,27 @@ const TAB_IDS = {
   allItems: 'allItems',
 };
 
-const HERO_CATEGORY_GROUPS = [
-  { id: 'early', letters: 'abcdef' },
-  { id: 'mid', letters: 'ghijkl' },
-  { id: 'late', letters: 'mnopqr' },
-  { id: 'end', letters: 'stuvwxyz' },
-];
-
-const resolveHeroCategory = (key) => {
-  const initial = String(key ?? '').trim().charAt(0).toLowerCase();
-  const matched = HERO_CATEGORY_GROUPS.find((group) => group.letters.includes(initial));
-  return matched?.id ?? 'end';
+const HERO_ATTRIBUTE_CATEGORY_MAP = {
+  str: 'strength',
+  agi: 'agility',
+  int: 'intelligence',
+  all: 'universal',
 };
+
+const normalizePrimaryAttr = (value) => {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (normalized === 'universal') {
+    return 'all';
+  }
+  if (normalized === 'str' || normalized === 'agi' || normalized === 'int' || normalized === 'all') {
+    return normalized;
+  }
+  return '';
+};
+
+const resolveHeroCategory = (primaryAttr) => HERO_ATTRIBUTE_CATEGORY_MAP[normalizePrimaryAttr(primaryAttr)] ?? 'unknown';
 
 const ITEM_CATEGORY_RULES = [
   { id: 'consumable', keywords: ['tango', 'clarity', 'flask', 'dust', 'ward', 'smoke', 'tpscroll', 'mango', 'faerie'] },
@@ -59,13 +69,69 @@ const resolveItemCategory = (key) => {
   return matched?.id ?? 'equipment';
 };
 
-const createMockDashboard = (copy) => {
-  const metrics = summarizeDashboard(heroPerformance);
+const MOCK_ATTRIBUTE_LABEL = {
+  zh: {
+    Strength: '力量',
+    Agility: '敏捷',
+    Intelligence: '智力',
+    Universal: '全才',
+    Unlabeled: '未标注',
+  },
+  en: {
+    Strength: 'Strength',
+    Agility: 'Agility',
+    Intelligence: 'Intelligence',
+    Universal: 'Universal',
+    Unlabeled: 'Unlabeled',
+  },
+};
+
+const localizeMockAttribute = (attribute, lang) => {
+  const locale = lang === 'en' ? 'en' : 'zh';
+  return MOCK_ATTRIBUTE_LABEL[locale][attribute] ?? MOCK_ATTRIBUTE_LABEL[locale].Unlabeled;
+};
+
+const toFiniteOrNull = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const formatGrowthValue = (baseValue, gainValue, fallback) => {
+  const base = toFiniteOrNull(baseValue);
+  const gain = toFiniteOrNull(gainValue);
+  if (base === null) {
+    return fallback;
+  }
+  if (gain === null) {
+    return String(base);
+  }
+  return `${base} (+${gain.toFixed(1)})`;
+};
+
+const formatNumberValue = (value, fallback) => {
+  const number = toFiniteOrNull(value);
+  return number === null ? fallback : String(number);
+};
+
+const formatRolesValue = (roles, fallback) => {
+  if (!Array.isArray(roles) || roles.length === 0) {
+    return fallback;
+  }
+  const normalized = roles.filter(Boolean);
+  return normalized.length > 0 ? normalized.join(' / ') : fallback;
+};
+
+const createMockDashboard = (copy, lang = 'zh') => {
+  const localizedHeroPerformance = heroPerformance.map((hero) => ({
+    ...hero,
+    attribute: localizeMockAttribute(hero.attribute, lang),
+  }));
+  const metrics = summarizeDashboard(localizedHeroPerformance);
   return {
     source: 'mock',
     playerName: copy.misc.samplePlayerName,
     totalMatches: metrics.totalMatches,
-    heroPerformance,
+    heroPerformance: localizedHeroPerformance,
     dailyWinRate,
     rankDistribution,
     recentMatches,
@@ -408,9 +474,11 @@ function App() {
   const [recentMatchesLimit, setRecentMatchesLimit] = useState(DEFAULT_RECENT_MATCH_LIMIT);
   const [sortKey, setSortKey] = useState('impact');
   const [sortDir, setSortDir] = useState('desc');
+  const [attributeFilter, setAttributeFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
   const [minMatches, setMinMatches] = useState(0);
-  const [dashboard, setDashboard] = useState(() => createMockDashboard(getCopy('zh')));
+  const [dashboard, setDashboard] = useState(() => createMockDashboard(getCopy('zh'), 'zh'));
+  const [heroMetaById, setHeroMetaById] = useState(() => new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedRecentMatchId, setSelectedRecentMatchId] = useState(null);
@@ -450,9 +518,33 @@ function App() {
 
   useEffect(() => {
     if (dashboard.source === 'mock') {
-      setDashboard(createMockDashboard(copy));
+      setDashboard(createMockDashboard(copy, lang));
     }
-  }, [copy, dashboard.source]);
+  }, [copy, dashboard.source, lang]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const client = createOpenDotaClient(lang);
+
+    const loadHeroMeta = async () => {
+      try {
+        const map = await client.getHeroesMetaMap(controller.signal);
+        if (!controller.signal.aborted) {
+          setHeroMetaById(map);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setHeroMetaById(new Map());
+        }
+      }
+    };
+
+    loadHeroMeta();
+
+    return () => {
+      controller.abort();
+    };
+  }, [lang]);
 
   useEffect(() => {
     if (!queryAccountId) {
@@ -581,20 +673,30 @@ function App() {
     const roleSet = new Set(dashboard.heroPerformance.map((item) => item.role).filter(Boolean));
     return Array.from(roleSet).sort((a, b) => a.localeCompare(b, lang === 'en' ? 'en' : 'zh'));
   }, [dashboard.heroPerformance, lang]);
+  const availableAttributes = useMemo(() => {
+    const attributeSet = new Set(dashboard.heroPerformance.map((item) => item.attribute).filter(Boolean));
+    return Array.from(attributeSet).sort((a, b) => a.localeCompare(b, lang === 'en' ? 'en' : 'zh'));
+  }, [dashboard.heroPerformance, lang]);
 
   useEffect(() => {
     if (roleFilter !== 'all' && !availableRoles.includes(roleFilter)) {
       setRoleFilter('all');
     }
   }, [availableRoles, roleFilter]);
+  useEffect(() => {
+    if (attributeFilter !== 'all' && !availableAttributes.includes(attributeFilter)) {
+      setAttributeFilter('all');
+    }
+  }, [attributeFilter, availableAttributes]);
 
   const filteredHeroes = useMemo(() => {
     return dashboard.heroPerformance
+      .filter((hero) => (attributeFilter === 'all' ? true : hero.attribute === attributeFilter))
       .filter((hero) => (roleFilter === 'all' ? true : hero.role === roleFilter))
       .filter((hero) => hero.matches >= minMatches)
       .slice()
       .sort((a, b) => compareHeroes(a, b, sortKey, sortDir, lang));
-  }, [dashboard.heroPerformance, lang, minMatches, roleFilter, sortDir, sortKey]);
+  }, [attributeFilter, dashboard.heroPerformance, lang, minMatches, roleFilter, sortDir, sortKey]);
 
   const roleDistribution = useMemo(() => buildRoleDistribution(dashboard.heroPerformance), [dashboard.heroPerformance]);
 
@@ -618,10 +720,10 @@ function App() {
   const heroCategories = useMemo(
     () => [
       { id: 'all', label: copy.catalog.categories.all },
-      { id: 'early', label: copy.catalog.categories.heroEarly },
-      { id: 'mid', label: copy.catalog.categories.heroMid },
-      { id: 'late', label: copy.catalog.categories.heroLate },
-      { id: 'end', label: copy.catalog.categories.heroEnd },
+      { id: 'strength', label: copy.catalog.categories.heroStrength },
+      { id: 'agility', label: copy.catalog.categories.heroAgility },
+      { id: 'intelligence', label: copy.catalog.categories.heroIntelligence },
+      { id: 'universal', label: copy.catalog.categories.heroUniversal },
     ],
     [copy.catalog.categories]
   );
@@ -643,8 +745,51 @@ function App() {
       .slice()
       .sort((a, b) => (a.id ?? 0) - (b.id ?? 0))
       .map((hero) => {
+        const heroMeta = heroMetaById.get(hero.id);
+        const primaryAttr = normalizePrimaryAttr(hero.primaryAttr ?? hero.primary_attr ?? heroMeta?.primaryAttr);
         const label = catalogLocale === 'en' ? hero.nameEn ?? hero.nameZh ?? hero.key : hero.nameZh ?? hero.nameEn ?? hero.key;
-        const category = resolveHeroCategory(hero.key);
+        const category = resolveHeroCategory(primaryAttr);
+        const categoryLabel = heroCategories.find((item) => item.id === category)?.label ?? copy.catalog.categories.all;
+        const detailFallback = copy.catalog.heroDetails.emptyValue;
+        const nameZh = hero.nameZh ?? heroMeta?.nameZh ?? '';
+        const nameEn = hero.nameEn ?? heroMeta?.nameEn ?? '';
+        const baseStr = heroMeta?.baseStr ?? hero.baseStr ?? hero.base_str;
+        const strGain = heroMeta?.strGain ?? hero.strGain ?? hero.str_gain;
+        const baseAgi = heroMeta?.baseAgi ?? hero.baseAgi ?? hero.base_agi;
+        const agiGain = heroMeta?.agiGain ?? hero.agiGain ?? hero.agi_gain;
+        const baseInt = heroMeta?.baseInt ?? hero.baseInt ?? hero.base_int;
+        const intGain = heroMeta?.intGain ?? hero.intGain ?? hero.int_gain;
+        const attackType = heroMeta?.attackType ?? hero.attackType ?? hero.attack_type ?? '';
+        const attackRange = heroMeta?.attackRange ?? hero.attackRange ?? hero.attack_range;
+        const moveSpeed = heroMeta?.moveSpeed ?? hero.moveSpeed ?? hero.move_speed;
+        const roles = heroMeta?.roles ?? hero.roles ?? [];
+        const detailRows = [
+          { key: 'nameZh', label: copy.catalog.heroDetails.nameZh, value: nameZh || detailFallback },
+          { key: 'nameEn', label: copy.catalog.heroDetails.nameEn, value: nameEn || detailFallback },
+          { key: 'attribute', label: copy.catalog.heroDetails.attribute, value: categoryLabel || detailFallback },
+          {
+            key: 'strength',
+            tone: 'strength',
+            label: copy.catalog.heroDetails.strength,
+            value: formatGrowthValue(baseStr, strGain, detailFallback),
+          },
+          {
+            key: 'agility',
+            tone: 'agility',
+            label: copy.catalog.heroDetails.agility,
+            value: formatGrowthValue(baseAgi, agiGain, detailFallback),
+          },
+          {
+            key: 'intelligence',
+            tone: 'intelligence',
+            label: copy.catalog.heroDetails.intelligence,
+            value: formatGrowthValue(baseInt, intGain, detailFallback),
+          },
+          { key: 'attackType', label: copy.catalog.heroDetails.attackType, value: attackType || detailFallback },
+          { key: 'attackRange', label: copy.catalog.heroDetails.attackRange, value: formatNumberValue(attackRange, detailFallback) },
+          { key: 'moveSpeed', label: copy.catalog.heroDetails.moveSpeed, value: formatNumberValue(moveSpeed, detailFallback) },
+          { key: 'roles', label: copy.catalog.heroDetails.roles, value: formatRolesValue(roles, detailFallback) },
+        ];
         const fallback = String(label ?? '')
           .replace(/\s+/g, '')
           .slice(0, 2)
@@ -652,15 +797,19 @@ function App() {
         return {
           key: `hero-${hero.id}-${hero.key}`,
           label: label || `Hero #${hero.id}`,
+          nameZh,
+          nameEn,
+          attributeLabel: categoryLabel,
           meta: `#${hero.id} · ${hero.key}`,
-          description: copy.catalog.heroDescription({ id: hero.id, key: hero.key }),
+          description: copy.catalog.heroDescription({ attribute: categoryLabel }),
+          detailRows,
           category,
-          categoryLabel: heroCategories.find((item) => item.id === category)?.label ?? copy.catalog.categories.all,
+          categoryLabel,
           icon: hero.avatar ?? '',
           fallback: fallback || 'H',
         };
       });
-  }, [catalogLocale, copy.catalog, heroCategories]);
+  }, [catalogLocale, copy.catalog, heroCategories, heroMetaById]);
   const allItemsCatalog = useMemo(() => {
     const unknownIdLabel = copy.catalog.unknownId;
     return itemCatalog
@@ -787,9 +936,20 @@ function App() {
 
     const header = copy.table.headers;
     const rows = [
-      [header.hero, header.role, header.matches, header.winRate, header.avgKda, header.avgGpm, header.avgXpm, header.impact],
+      [
+        header.hero,
+        header.attribute,
+        header.role,
+        header.matches,
+        header.winRate,
+        header.avgKda,
+        header.avgGpm,
+        header.avgXpm,
+        header.impact,
+      ],
       ...filteredHeroes.map((hero) => [
         hero.hero,
+        hero.attribute,
         hero.role,
         hero.matches,
         `${((hero.wins / Math.max(1, hero.matches)) * 100).toFixed(1)}%`,
@@ -1132,10 +1292,12 @@ function App() {
           <section id={`panel-${TAB_IDS.heroes}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.heroes}`} className="tab-content">
             <HeroPerformanceTable
               heroes={filteredHeroes}
+              attributes={availableAttributes}
               roles={availableRoles}
-              controls={{ sortKey, sortDir, roleFilter, minMatches }}
+              controls={{ sortKey, sortDir, attributeFilter, roleFilter, minMatches }}
               onSortKeyChange={setSortKey}
               onSortDirChange={setSortDir}
+              onAttributeFilterChange={setAttributeFilter}
               onRoleFilterChange={setRoleFilter}
               onMinMatchesChange={handleMinMatchesChange}
               onExport={handleExportHeroes}

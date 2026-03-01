@@ -5,6 +5,7 @@ const fallbackCopy = {
   tag: '支持排序/筛选/导出',
   headers: {
     hero: '英雄',
+    attribute: '属性',
     role: '定位',
     matches: '场次',
     winRate: '胜率',
@@ -16,10 +17,12 @@ const fallbackCopy = {
   controls: {
     sortLabel: '排序字段',
     sortDirectionLabel: '排序方向',
+    attributeLabel: '属性筛选',
     roleLabel: '分路筛选',
     minMatchesLabel: '最少场次',
     export: '导出 CSV',
     roleAll: '全部分路',
+    attributeAll: '全部属性',
     sortOptions: {
       impact: '影响力',
       matches: '场次',
@@ -40,10 +43,12 @@ const fallbackCopy = {
 
 function HeroPerformanceTable({
   heroes,
+  attributes = [],
   roles = [],
   controls,
   onSortKeyChange,
   onSortDirChange,
+  onAttributeFilterChange,
   onRoleFilterChange,
   onMinMatchesChange,
   onExport,
@@ -52,6 +57,7 @@ function HeroPerformanceTable({
   const activeControls = controls ?? {
     sortKey: 'impact',
     sortDir: 'desc',
+    attributeFilter: 'all',
     roleFilter: 'all',
     minMatches: 0,
   };
@@ -79,6 +85,20 @@ function HeroPerformanceTable({
             {Object.entries(copy.controls.directionOptions).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>{copy.controls.attributeLabel}</span>
+          <select
+            value={activeControls.attributeFilter}
+            onChange={(event) => onAttributeFilterChange?.(event.target.value)}
+          >
+            <option value="all">{copy.controls.attributeAll}</option>
+            {attributes.map((attribute) => (
+              <option key={attribute} value={attribute}>
+                {attribute}
               </option>
             ))}
           </select>
@@ -113,6 +133,7 @@ function HeroPerformanceTable({
           <thead>
             <tr>
               <th>{copy.headers.hero}</th>
+              <th>{copy.headers.attribute}</th>
               <th>{copy.headers.role}</th>
               <th>{copy.headers.matches}</th>
               <th>{copy.headers.winRate}</th>
@@ -132,6 +153,7 @@ function HeroPerformanceTable({
                       <span>{hero.hero}</span>
                     </div>
                   </td>
+                  <td>{hero.attribute}</td>
                   <td>{hero.role}</td>
                   <td>{hero.matches}</td>
                   <td>{toPercent(hero.wins, hero.matches)}%</td>
@@ -150,7 +172,7 @@ function HeroPerformanceTable({
               ))
             ) : (
               <tr>
-                <td colSpan={8} className="empty-cell">
+                <td colSpan={9} className="empty-cell">
                   {copy.empty}
                 </td>
               </tr>

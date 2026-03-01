@@ -14,6 +14,12 @@ const localeConfig = {
       3: '劣势路',
       4: '野区',
     },
+    attributeMap: {
+      str: '力量',
+      agi: '敏捷',
+      int: '智力',
+      all: '全才',
+    },
     rankTierMap: {
       1: '先锋',
       2: '卫士',
@@ -50,6 +56,7 @@ const localeConfig = {
     },
     roamingRole: '游走',
     unknownRole: '未标注',
+    unknownAttribute: '未标注',
     unknownRank: '未知',
     unknownMode: '未知模式',
     unknownQueue: '未知队列',
@@ -62,6 +69,12 @@ const localeConfig = {
       2: 'Mid Lane',
       3: 'Off Lane',
       4: 'Jungle',
+    },
+    attributeMap: {
+      str: 'Strength',
+      agi: 'Agility',
+      int: 'Intelligence',
+      all: 'Universal',
     },
     rankTierMap: {
       1: 'Herald',
@@ -99,6 +112,7 @@ const localeConfig = {
     },
     roamingRole: 'Roaming',
     unknownRole: 'Unlabeled',
+    unknownAttribute: 'Unlabeled',
     unknownRank: 'Unknown',
     unknownMode: 'Unknown',
     unknownQueue: 'Unknown Queue',
@@ -143,6 +157,7 @@ const getMainRole = (roleCount, unknownRole) => {
 
 const resolveRole = (match, locale) =>
   locale.laneRoleMap[match.lane_role] ?? (match.is_roaming ? locale.roamingRole : locale.unknownRole);
+const resolveHeroAttribute = (heroMeta, locale) => locale.attributeMap[heroMeta?.primaryAttr] ?? locale.unknownAttribute;
 
 const resolveRank = (match, locale) => {
   const rankTier = match.average_rank ?? match.average_rank_tier ?? match.rank_tier;
@@ -424,6 +439,7 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
       heroId,
       hero: heroMeta?.name ?? `Hero #${heroId}`,
       heroAvatar: heroMeta?.avatar ?? '',
+      attribute: resolveHeroAttribute(heroMeta, locale),
       matches: 0,
       wins: 0,
       kills: 0,
@@ -471,6 +487,7 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
         heroId: record.heroId,
         hero: record.hero,
         heroAvatar: record.heroAvatar,
+        attribute: record.attribute,
         role: getMainRole(record.roleCount, locale.unknownRole),
         matches: record.matches,
         wins: record.wins,

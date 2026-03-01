@@ -2,7 +2,6 @@ import { heroCatalog } from '../data/heroCatalog.js';
 import { itemCatalog } from '../data/itemCatalog.js';
 
 const API_BASE = 'https://api.opendota.com/api';
-const OPEN_DOTA_SITE = 'https://www.opendota.com';
 const PLAYER_MATCH_PROJECT_FIELDS = [
   'hero_id',
   'kills',
@@ -66,43 +65,9 @@ const fetchJson = async (path, signal, locale) => {
 };
 
 const toArray = (value) => (Array.isArray(value) ? value : []);
-const toObject = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
-
-const toAbsoluteUrl = (value) => {
-  if (!value) {
-    return '';
-  }
-  return new URL(value, OPEN_DOTA_SITE).toString();
-};
-
-const prettifyToken = (value) =>
-  String(value ?? '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-
-const resolveNamedEntry = (value, fallbackToken) => {
-  const objectValue = toObject(value);
-  return objectValue.dname || objectValue.localized_name || objectValue.name || prettifyToken(fallbackToken);
-};
-
-const buildIdToTokenMap = (payload) => {
-  const source = toObject(payload);
-  const map = new Map();
-
-  Object.entries(source).forEach(([key, value]) => {
-    const idFromKey = Number.parseInt(key, 10);
-    if (Number.isFinite(idFromKey) && idFromKey > 0) {
-      map.set(idFromKey, String(value));
-      return;
-    }
-
-    const idFromValue = Number.parseInt(String(value), 10);
-    if (Number.isFinite(idFromValue) && idFromValue > 0) {
-      map.set(idFromValue, String(key));
-    }
-  });
-
-  return map;
+const toFiniteOrNull = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
 };
 
 const pickNameByLang = (nameEn, nameZh, lang) => {
@@ -112,16 +77,50 @@ const pickNameByLang = (nameEn, nameZh, lang) => {
   return nameZh || nameEn || '';
 };
 
+const normalizePrimaryAttr = (value) => {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (normalized === 'str' || normalized === 'agi' || normalized === 'int' || normalized === 'all') {
+    return normalized;
+  }
+  if (normalized === 'universal') {
+    return 'all';
+  }
+  return '';
+};
+
+const normalizeHeroRoles = (value) =>
+  toArray(value)
+    .map((item) => String(item ?? '').trim())
+    .filter(Boolean);
+
+const createHeroDetailFromSource = (source = {}) => ({
+  primaryAttr: normalizePrimaryAttr(source.primaryAttr ?? source.primary_attr),
+  attackType: String(source.attackType ?? source.attack_type ?? '').trim(),
+  roles: normalizeHeroRoles(source.roles),
+  baseStr: toFiniteOrNull(source.baseStr ?? source.base_str),
+  strGain: toFiniteOrNull(source.strGain ?? source.str_gain),
+  baseAgi: toFiniteOrNull(source.baseAgi ?? source.base_agi),
+  agiGain: toFiniteOrNull(source.agiGain ?? source.agi_gain),
+  baseInt: toFiniteOrNull(source.baseInt ?? source.base_int),
+  intGain: toFiniteOrNull(source.intGain ?? source.int_gain),
+  attackRange: toFiniteOrNull(source.attackRange ?? source.attack_range),
+  moveSpeed: toFiniteOrNull(source.moveSpeed ?? source.move_speed),
+});
+
 const buildPersistedHeroesMetaMap = (lang) =>
   heroCatalog.reduce((map, hero) => {
     const nameEn = hero.nameEn ?? hero.name ?? '';
     const nameZh = hero.nameZh ?? nameEn;
+    const detail = createHeroDetailFromSource(hero);
     map.set(hero.id, {
       nameEn,
       nameZh,
       name: pickNameByLang(nameEn, nameZh, lang),
       avatar: hero.avatar,
       avatarSource: hero.avatarSource,
+      ...detail,
     });
     return map;
   }, new Map());
@@ -166,73 +165,7 @@ const buildPersistedItemMeta = (lang) => {
   };
 };
 
-const mergeHeroesMeta = (heroes, persistedMap, lang) => {
-  const merged = new Map(persistedMap);
-  heroes.forEach((hero) => {
-    if (hero?.id != null) {
-      const existing = merged.get(hero.id);
-      const nameEn = hero.localized_name ?? existing?.nameEn ?? `Hero #${hero.id}`;
-      const nameZh = existing?.nameZh ?? nameEn;
-      merged.set(hero.id, {
-        nameEn,
-        nameZh,
-        name: pickNameByLang(nameEn, nameZh, lang),
-        avatar: existing?.avatar ?? '',
-        avatarSource: existing?.avatarSource ?? toAbsoluteUrl(hero.img),
-      });
-    }
-  });
-  return merged;
-};
-
-const mergeItemMeta = (idToToken, itemDefs, persistedMeta, lang) => {
-  const nameById = new Map(persistedMeta.nameById);
-  const nameByKey = new Map(persistedMeta.nameByKey);
-  const itemById = new Map(persistedMeta.itemById);
-  const itemByKey = new Map(persistedMeta.itemByKey);
-
-  Object.entries(itemDefs).forEach(([token, detail]) => {
-    const objectDetail = toObject(detail);
-    const existing = itemByKey.get(token);
-    const nameEn = resolveNamedEntry(objectDetail, token) || existing?.nameEn || prettifyToken(token);
-    const nameZh = existing?.nameZh ?? nameEn;
-    const iconSource = objectDetail.img ? toAbsoluteUrl(objectDetail.img) : '';
-    const nextEntry = {
-      nameEn,
-      nameZh,
-      name: pickNameByLang(nameEn, nameZh, lang),
-      icon: existing?.icon || iconSource,
-      iconSource: existing?.iconSource || iconSource,
-    };
-    nameByKey.set(token, nextEntry.name);
-    itemByKey.set(token, nextEntry);
-  });
-
-  idToToken.forEach((token, id) => {
-    const fromToken = itemByKey.get(token);
-    const existing = itemById.get(id);
-    const fallbackNameEn = existing?.nameEn ?? prettifyToken(token);
-    const fallbackNameZh = existing?.nameZh ?? fallbackNameEn;
-    const nextEntry = fromToken ?? {
-      nameEn: fallbackNameEn,
-      nameZh: fallbackNameZh,
-      name: pickNameByLang(fallbackNameEn, fallbackNameZh, lang),
-      icon: existing?.icon ?? '',
-      iconSource: existing?.iconSource ?? '',
-    };
-    nameById.set(id, nextEntry.name);
-    itemById.set(id, nextEntry);
-  });
-
-  return {
-    nameById,
-    nameByKey,
-    itemById,
-    itemByKey,
-  };
-};
-
-const getHeroesMetaMap = async (signal, locale, lang) => {
+const getHeroesMetaMap = async (_signal, _locale, lang) => {
   const cacheKey = lang === 'en' ? 'en' : 'zh';
   const cached = heroesMetaCacheByLang.get(cacheKey);
   if (cached) {
@@ -240,19 +173,11 @@ const getHeroesMetaMap = async (signal, locale, lang) => {
   }
 
   const persistedMap = buildPersistedHeroesMetaMap(cacheKey);
-
-  try {
-    const heroes = toArray(await fetchJson('/heroes', signal, locale));
-    const merged = mergeHeroesMeta(heroes, persistedMap, cacheKey);
-    heroesMetaCacheByLang.set(cacheKey, merged);
-  } catch {
-    heroesMetaCacheByLang.set(cacheKey, persistedMap);
-  }
-
-  return heroesMetaCacheByLang.get(cacheKey);
+  heroesMetaCacheByLang.set(cacheKey, persistedMap);
+  return persistedMap;
 };
 
-const getItemMeta = async (signal, locale, lang) => {
+const getItemMeta = async (_signal, _locale, lang) => {
   const cacheKey = lang === 'en' ? 'en' : 'zh';
   const cached = itemMetaCacheByLang.get(cacheKey);
   if (cached) {
@@ -260,51 +185,16 @@ const getItemMeta = async (signal, locale, lang) => {
   }
 
   const persistedMeta = buildPersistedItemMeta(cacheKey);
-
-  try {
-    const [itemIdsPayload, itemsPayload] = await Promise.all([
-      fetchJson('/constants/item_ids', signal, locale),
-      fetchJson('/constants/items', signal, locale),
-    ]);
-
-    const idToToken = buildIdToTokenMap(itemIdsPayload);
-    const itemDefs = toObject(itemsPayload);
-    const merged = mergeItemMeta(idToToken, itemDefs, persistedMeta, cacheKey);
-    itemMetaCacheByLang.set(cacheKey, merged);
-  } catch {
-    itemMetaCacheByLang.set(cacheKey, persistedMeta);
-  }
-
-  return itemMetaCacheByLang.get(cacheKey);
+  itemMetaCacheByLang.set(cacheKey, persistedMeta);
+  return persistedMeta;
 };
 
-const getAbilityNameById = async (signal, locale) => {
+const getAbilityNameById = async () => {
   if (abilityNameByIdCache) {
     return abilityNameByIdCache;
   }
 
-  const fallback = new Map();
-
-  try {
-    const [abilityIdsPayload, abilitiesPayload] = await Promise.all([
-      fetchJson('/constants/ability_ids', signal, locale),
-      fetchJson('/constants/abilities', signal, locale),
-    ]);
-
-    const idToToken = buildIdToTokenMap(abilityIdsPayload);
-    const abilityDefs = toObject(abilitiesPayload);
-    const map = new Map();
-
-    idToToken.forEach((token, id) => {
-      const detail = abilityDefs[token];
-      map.set(id, resolveNamedEntry(detail, token));
-    });
-
-    abilityNameByIdCache = map;
-  } catch {
-    abilityNameByIdCache = fallback;
-  }
-
+  abilityNameByIdCache = new Map();
   return abilityNameByIdCache;
 };
 
@@ -337,6 +227,6 @@ export const createOpenDotaClient = (lang = 'zh') => {
     },
     getHeroesMetaMap: (signal) => getHeroesMetaMap(signal, locale, lang),
     getItemMeta: (signal) => getItemMeta(signal, locale, lang),
-    getAbilityNameById: (signal) => getAbilityNameById(signal, locale),
+    getAbilityNameById: () => getAbilityNameById(),
   };
 };
