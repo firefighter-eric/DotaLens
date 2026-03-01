@@ -2,7 +2,7 @@ const fallbackCopy = {
   title: (days) => `${days} 天胜率走势`,
   latestWinRate: (value) => `最新胜率 ${value}%`,
   noDataTag: '暂无可用数据',
-  noDataText: '当前时间窗口没有对局数据。',
+  noDataText: '当前时间窗口没有比赛数据。',
   ariaLabel: (days) => `${days}天胜率走势`,
 };
 

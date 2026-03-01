@@ -1,0 +1,232 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - paragraph [ref=e7]: DotaLens Analytics
+        - generic [ref=e8]:
+          - group "语言" [ref=e9]:
+            - button "中文" [ref=e10] [cursor=pointer]
+            - button "English" [ref=e11] [cursor=pointer]
+          - button "打开账号弹窗" [ref=e12] [cursor=pointer]:
+            - generic [ref=e13]:
+              - img "念头通达" [ref=e227]
+              - generic [ref=e15]: 念头通达
+      - heading "你的 Dota 数据分析工作台" [level=1] [ref=e16]
+      - paragraph [ref=e17]: 聚合英雄表现、胜率趋势和段位分布，帮助你在每个版本快速定位最有价值的打法。
+      - paragraph [ref=e18]: "当前玩家：念头通达（Steam32: 898754153），统计窗口：最近 14 天，共 35 场。"
+  - main [ref=e19]:
+    - tablist "分析模块" [ref=e21]:
+      - tab "最近对局" [selected] [ref=e22] [cursor=pointer]
+      - tab "英雄池" [ref=e23] [cursor=pointer]
+      - tab "趋势" [ref=e24] [cursor=pointer]
+      - tab "段位" [ref=e25] [cursor=pointer]
+      - tab "总览" [ref=e26] [cursor=pointer]
+      - tab "全英雄" [ref=e27] [cursor=pointer]
+      - tab "全物品" [ref=e28] [cursor=pointer]
+    - tabpanel "最近对局" [ref=e29]:
+      - generic [ref=e30]:
+        - generic [ref=e31]:
+          - heading "最近 10 场详细分析" [level=2] [ref=e32]
+          - generic [ref=e33]:
+            - generic [ref=e34]: 最近 10 场
+            - generic [ref=e35]: 点击任意一行查看详情
+            - group "最近对局场次切换" [ref=e36]:
+              - button "10" [ref=e37] [cursor=pointer]
+              - button "20" [ref=e38] [cursor=pointer]
+              - button "30" [ref=e39] [cursor=pointer]
+        - generic [ref=e40]:
+          - generic [ref=e41]:
+            - generic [ref=e42]: 胜率
+            - strong [ref=e43]: 50.0%
+          - generic [ref=e44]:
+            - generic [ref=e45]: 平均 KDA
+            - strong [ref=e46]: "5.26"
+          - generic [ref=e47]:
+            - generic [ref=e48]: 平均 GPM
+            - strong [ref=e49]: "652"
+          - generic [ref=e50]:
+            - generic [ref=e51]: 平均时长
+            - strong [ref=e52]: 46 分钟
+        - table [ref=e54]:
+          - rowgroup [ref=e55]:
+            - row "时间 英雄 结果 K/D/A GPM / XPM 伤害 时长 段位 对局 ID" [ref=e56]:
+              - columnheader "时间" [ref=e57]
+              - columnheader "英雄" [ref=e58]
+              - columnheader "结果" [ref=e59]
+              - columnheader "K/D/A" [ref=e60]
+              - columnheader "GPM / XPM" [ref=e61]
+              - columnheader "伤害" [ref=e62]
+              - columnheader "时长" [ref=e63]
+              - columnheader "段位" [ref=e64]
+              - columnheader "对局 ID" [ref=e65]
+          - rowgroup [ref=e66]:
+            - row "03/01 00:23 今天 凯 凯 失败 2/6/5 (1.17) 530 / 652 9,034 29:09 超凡入圣 8710260672" [ref=e228] [cursor=pointer]:
+              - cell "03/01 00:23 今天" [ref=e229]:
+                - generic [ref=e230]:
+                  - generic [ref=e231]: 03/01 00:23
+                  - generic [ref=e232]: 今天
+              - cell "凯 凯" [ref=e233]:
+                - generic [ref=e234]:
+                  - img "凯" [ref=e235]
+                  - generic [ref=e236]: 凯
+              - cell "失败" [ref=e237]:
+                - generic [ref=e238]: 失败
+              - cell "2/6/5 (1.17)" [ref=e239]
+              - cell "530 / 652" [ref=e240]
+              - cell "9,034" [ref=e241]
+              - cell "29:09" [ref=e242]
+              - cell "超凡入圣" [ref=e243]
+              - cell "8710260672" [ref=e244]
+            - row "02/28 23:04 昨天 编织者 编织者 失败 7/3/7 (4.67) 722 / 962 29,832 47:26 超凡入圣 8710135523" [ref=e245] [cursor=pointer]:
+              - cell "02/28 23:04 昨天" [ref=e246]:
+                - generic [ref=e247]:
+                  - generic [ref=e248]: 02/28 23:04
+                  - generic [ref=e249]: 昨天
+              - cell "编织者 编织者" [ref=e250]:
+                - generic [ref=e251]:
+                  - img "编织者" [ref=e252]
+                  - generic [ref=e253]: 编织者
+              - cell "失败" [ref=e254]:
+                - generic [ref=e255]: 失败
+              - cell "7/3/7 (4.67)" [ref=e256]
+              - cell "722 / 962" [ref=e257]
+              - cell "29,832" [ref=e258]
+              - cell "47:26" [ref=e259]
+              - cell "超凡入圣" [ref=e260]
+              - cell "8710135523" [ref=e261]
+            - row "02/28 21:56 昨天 凯 凯 胜利 14/0/1 (15.00) 838 / 1049 29,410 39:50 超凡入圣 8710019404" [ref=e262] [cursor=pointer]:
+              - cell "02/28 21:56 昨天" [ref=e263]:
+                - generic [ref=e264]:
+                  - generic [ref=e265]: 02/28 21:56
+                  - generic [ref=e266]: 昨天
+              - cell "凯 凯" [ref=e267]:
+                - generic [ref=e268]:
+                  - img "凯" [ref=e269]
+                  - generic [ref=e270]: 凯
+              - cell "胜利" [ref=e271]:
+                - generic [ref=e272]: 胜利
+              - cell "14/0/1 (15.00)" [ref=e273]
+              - cell "838 / 1049" [ref=e274]
+              - cell "29,410" [ref=e275]
+              - cell "39:50" [ref=e276]
+              - cell "超凡入圣" [ref=e277]
+              - cell "8710019404" [ref=e278]
+            - row "02/28 00:52 昨天 兽王 兽王 失败 3/6/14 (2.83) 719 / 942 28,148 67:24 超凡入圣 8708807338" [ref=e279] [cursor=pointer]:
+              - cell "02/28 00:52 昨天" [ref=e280]:
+                - generic [ref=e281]:
+                  - generic [ref=e282]: 02/28 00:52
+                  - generic [ref=e283]: 昨天
+              - cell "兽王 兽王" [ref=e284]:
+                - generic [ref=e285]:
+                  - img "兽王" [ref=e286]
+                  - generic [ref=e287]: 兽王
+              - cell "失败" [ref=e288]:
+                - generic [ref=e289]: 失败
+              - cell "3/6/14 (2.83)" [ref=e290]
+              - cell "719 / 942" [ref=e291]
+              - cell "28,148" [ref=e292]
+              - cell "67:24" [ref=e293]
+              - cell "超凡入圣" [ref=e294]
+              - cell "8708807338" [ref=e295]
+            - row "02/27 23:27 本周 凯 凯 胜利 10/4/12 (5.50) 813 / 979 33,502 51:38 超凡入圣 8708689404" [ref=e296] [cursor=pointer]:
+              - cell "02/27 23:27 本周" [ref=e297]:
+                - generic [ref=e298]:
+                  - generic [ref=e299]: 02/27 23:27
+                  - generic [ref=e300]: 本周
+              - cell "凯 凯" [ref=e301]:
+                - generic [ref=e302]:
+                  - img "凯" [ref=e303]
+                  - generic [ref=e304]: 凯
+              - cell "胜利" [ref=e305]:
+                - generic [ref=e306]: 胜利
+              - cell "10/4/12 (5.50)" [ref=e307]
+              - cell "813 / 979" [ref=e308]
+              - cell "33,502" [ref=e309]
+              - cell "51:38" [ref=e310]
+              - cell "超凡入圣" [ref=e311]
+              - cell "8708689404" [ref=e312]
+            - row "02/27 22:07 本周 影魔 影魔 失败 6/8/12 (2.25) 669 / 980 37,398 48:00 超凡入圣 8708568399" [ref=e313] [cursor=pointer]:
+              - cell "02/27 22:07 本周" [ref=e314]:
+                - generic [ref=e315]:
+                  - generic [ref=e316]: 02/27 22:07
+                  - generic [ref=e317]: 本周
+              - cell "影魔 影魔" [ref=e318]:
+                - generic [ref=e319]:
+                  - img "影魔" [ref=e320]
+                  - generic [ref=e321]: 影魔
+              - cell "失败" [ref=e322]:
+                - generic [ref=e323]: 失败
+              - cell "6/8/12 (2.25)" [ref=e324]
+              - cell "669 / 980" [ref=e325]
+              - cell "37,398" [ref=e326]
+              - cell "48:00" [ref=e327]
+              - cell "超凡入圣" [ref=e328]
+              - cell "8708568399" [ref=e329]
+            - row "02/27 04:48 本周 兽王 兽王 胜利 6/4/14 (5.00) 670 / 837 22,263 35:14 超凡入圣 8707774059" [ref=e330] [cursor=pointer]:
+              - cell "02/27 04:48 本周" [ref=e331]:
+                - generic [ref=e332]:
+                  - generic [ref=e333]: 02/27 04:48
+                  - generic [ref=e334]: 本周
+              - cell "兽王 兽王" [ref=e335]:
+                - generic [ref=e336]:
+                  - img "兽王" [ref=e337]
+                  - generic [ref=e338]: 兽王
+              - cell "胜利" [ref=e339]:
+                - generic [ref=e340]: 胜利
+              - cell "6/4/14 (5.00)" [ref=e341]
+              - cell "670 / 837" [ref=e342]
+              - cell "22,263" [ref=e343]
+              - cell "35:14" [ref=e344]
+              - cell "超凡入圣" [ref=e345]
+              - cell "8707774059" [ref=e346]
+            - row "02/27 04:29 本周 兽王 兽王 胜利 0/0/0 (0.00) 123 / 0 0 51:57 超凡入圣 8707751012" [ref=e347] [cursor=pointer]:
+              - cell "02/27 04:29 本周" [ref=e348]:
+                - generic [ref=e349]:
+                  - generic [ref=e350]: 02/27 04:29
+                  - generic [ref=e351]: 本周
+              - cell "兽王 兽王" [ref=e352]:
+                - generic [ref=e353]:
+                  - img "兽王" [ref=e354]
+                  - generic [ref=e355]: 兽王
+              - cell "胜利" [ref=e356]:
+                - generic [ref=e357]: 胜利
+              - cell "0/0/0 (0.00)" [ref=e358]
+              - cell "123 / 0" [ref=e359]
+              - cell "0" [ref=e360]
+              - cell "51:57" [ref=e361]
+              - cell "超凡入圣" [ref=e362]
+              - cell "8707751012" [ref=e363]
+            - row "02/27 03:07 本周 编织者 编织者 胜利 17/2/12 (14.50) 782 / 1145 44,719 52:27 超凡入圣 8707662784" [ref=e364] [cursor=pointer]:
+              - cell "02/27 03:07 本周" [ref=e365]:
+                - generic [ref=e366]:
+                  - generic [ref=e367]: 02/27 03:07
+                  - generic [ref=e368]: 本周
+              - cell "编织者 编织者" [ref=e369]:
+                - generic [ref=e370]:
+                  - img "编织者" [ref=e371]
+                  - generic [ref=e372]: 编织者
+              - cell "胜利" [ref=e373]:
+                - generic [ref=e374]: 胜利
+              - cell "17/2/12 (14.50)" [ref=e375]
+              - cell "782 / 1145" [ref=e376]
+              - cell "44,719" [ref=e377]
+              - cell "52:27" [ref=e378]
+              - cell "超凡入圣" [ref=e379]
+              - cell "8707662784" [ref=e380]
+            - row "02/27 01:55 本周 凯 凯 失败 5/6/5 (1.67) 656 / 882 22,596 41:11 超凡入圣 8707575685" [ref=e381] [cursor=pointer]:
+              - cell "02/27 01:55 本周" [ref=e382]:
+                - generic [ref=e383]:
+                  - generic [ref=e384]: 02/27 01:55
+                  - generic [ref=e385]: 本周
+              - cell "凯 凯" [ref=e386]:
+                - generic [ref=e387]:
+                  - img "凯" [ref=e388]
+                  - generic [ref=e389]: 凯
+              - cell "失败" [ref=e390]:
+                - generic [ref=e391]: 失败
+              - cell "5/6/5 (1.67)" [ref=e392]
+              - cell "656 / 882" [ref=e393]
+              - cell "22,596" [ref=e394]
+              - cell "41:11" [ref=e395]
+              - cell "超凡入圣" [ref=e396]
+              - cell "8707575685" [ref=e397]

@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
 
 const fallbackDetailCopy = {
-  title: '对局详情',
-  loading: '正在加载对局详情...',
-  loadFailed: '对局详情加载失败，请稍后重试。',
-  closeAriaLabel: '关闭对局详情',
+  title: '比赛详情',
+  loading: '正在加载比赛详情...',
+  loadFailed: '比赛详情加载失败，请稍后重试。',
+  closeAriaLabel: '关闭比赛详情',
   openHint: '点击列表行查看详情',
   sections: {
     overview: '基础概览',
@@ -29,7 +29,7 @@ const fallbackDetailCopy = {
     stunDuration: '控制时长',
     lastHits: '补刀',
     denies: '反补',
-    netWorth: '净值',
+    netWorth: '经济 💰',
     level: '等级',
     finalItems: '终局装备',
     neutralItem: '中立道具',
@@ -43,8 +43,8 @@ const fallbackDetailCopy = {
     playerGpmXpm: 'GPM / XPM',
     playerLastHitsDenies: '补刀 / 反补',
     teamKills: '击败',
-    teamNetWorth: '净值总计',
-    playerNetWorth: '净值',
+    teamNetWorth: '总经济 💰',
+    playerNetWorth: '经济 💰',
     playerItems: '装备',
     playerDamage: '英雄伤害 / 治疗',
     playerDamageShare: '伤害占比',

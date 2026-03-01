@@ -1,5 +1,5 @@
 const fallbackCopy = {
-  title: '对局段位分布',
+  title: '比赛段位分布',
   tag: (days) => `最近 ${days} 天`,
   noDataText: '当前公开数据没有段位信息。',
 };

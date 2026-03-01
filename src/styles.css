@@ -1258,7 +1258,7 @@ tbody tr:hover {
 }
 
 .match-detail-drawer {
-  width: min(100%, 780px);
+  width: min(100%, 900px);
   height: 100%;
   background: #ffffff;
   border-left: 1px solid #e5e7eb;
@@ -1556,11 +1556,13 @@ tbody tr:hover {
 .match-player-scoreboard-table tbody td:first-child {
   border-left: 1px solid #dde7f1;
   border-radius: 10px 0 0 10px;
+  overflow: hidden;
 }
 
 .match-player-scoreboard-table tbody td:last-child {
   border-right: 1px solid #dde7f1;
   border-radius: 0 10px 10px 0;
+  overflow: hidden;
 }
 
 .match-player-scoreboard-table th.col-player,
@@ -1585,7 +1587,7 @@ tbody tr:hover {
 
 .match-player-scoreboard-table th.col-items,
 .match-player-scoreboard-table td.col-items {
-  width: 18%;
+  width: 15%;
 }
 
 .match-player-scoreboard-table th.col-damage,
@@ -1595,17 +1597,19 @@ tbody tr:hover {
 
 .match-player-scoreboard-table th.col-participation,
 .match-player-scoreboard-table td.col-participation {
-  width: 12%;
+  width: 14%;
+  white-space: nowrap;
 }
 
 .match-player-scoreboard-table th.col-last-hits,
 .match-player-scoreboard-table td.col-last-hits {
-  width: 10%;
+  width: 9%;
 }
 
 .match-player-scoreboard-table th.col-rank,
 .match-player-scoreboard-table td.col-rank {
-  width: 7%;
+  width: 9%;
+  white-space: nowrap;
 }
 
 .match-player-scoreboard-table th:not(.col-player):not(.col-items),
@@ -1655,15 +1659,7 @@ tbody tr:hover {
 
 .match-player-scoreboard-table td.col-player {
   min-width: 0;
-  display: grid;
-  align-content: start;
-  gap: 4px;
   padding: 7px 8px;
-  border-right: 1px solid #dde7f1;
-}
-
-.match-player-scoreboard-table th.col-player {
-  border-right: 1px dashed #cbdcf0;
 }
 
 .match-player-scoreboard-table .col-player .hero-name-cell {
@@ -1671,6 +1667,7 @@ tbody tr:hover {
   align-items: center;
   max-width: 100%;
   gap: 6px;
+  margin-bottom: 4px;
 }
 
 .match-player-scoreboard-table .col-player .hero-name-cell strong {
@@ -1683,16 +1680,24 @@ tbody tr:hover {
 .match-player-name {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 5px;
   color: #334155;
   font-size: 0.79rem;
   margin-top: 0;
   min-width: 0;
+  width: 100%;
+  overflow: hidden;
 }
 
 .match-player-name-text {
+  display: block;
+  flex: 1 1 auto;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .match-player-name-text.is-current {
@@ -1744,7 +1749,7 @@ tbody tr:hover {
 
 @media (min-width: 981px) {
   .match-detail-drawer {
-    width: min(66.666vw, 1180px);
+    width: min(76vw, 1320px);
     max-width: 100%;
   }
 }

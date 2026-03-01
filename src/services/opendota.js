@@ -661,7 +661,7 @@ export const fetchRecentMatchDetail = async (
     players.find((entry) => isSamePlayer(entry, accountId, fallback.playerSlot, fallback.heroId)) ?? players[0] ?? null;
 
   if (!player) {
-    throw new Error(lang === 'en' ? 'Match detail is unavailable.' : '当前对局详情不可用。');
+    throw new Error(lang === 'en' ? 'Match detail is unavailable.' : '当前比赛详情不可用。');
   }
 
   const isWin = isPlayerWinInMatch(player.player_slot, match.radiant_win);
