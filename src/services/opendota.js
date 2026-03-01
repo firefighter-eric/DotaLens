@@ -132,6 +132,82 @@ const toFiniteOrNull = (value) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 };
+const toPositiveCount = (value) => {
+  const num = toFiniteOrNull(value);
+  if (num === null || num <= 0) {
+    return 0;
+  }
+  return Math.trunc(num);
+};
+const toCounterObjectOrNull = (value) => {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value;
+};
+const sumCounterAtOrAbove = (counter, minTier) => {
+  const source = toCounterObjectOrNull(counter);
+  if (!source) {
+    return null;
+  }
+
+  return Object.entries(source).reduce((sum, [key, rawValue]) => {
+    const tier = Number.parseInt(String(key), 10);
+    if (!Number.isFinite(tier) || tier < minTier) {
+      return sum;
+    }
+    return sum + toPositiveCount(rawValue);
+  }, 0);
+};
+const resolveRampageCount = (source) => {
+  const multiKillsCount = sumCounterAtOrAbove(source?.multi_kills, 5);
+  if (multiKillsCount !== null) {
+    return multiKillsCount;
+  }
+  return toPositiveCount(source?.rampages);
+};
+const resolveGodlikeCount = (source) => {
+  const killStreakCount = sumCounterAtOrAbove(source?.kill_streaks, 9);
+  if (killStreakCount !== null) {
+    return killStreakCount;
+  }
+
+  return toPositiveCount(source?.max_kill_streak) >= 9 ? 1 : 0;
+};
+const isRampageDataAvailable = (source) =>
+  sumCounterAtOrAbove(source?.multi_kills, 5) !== null || source?.rampages != null;
+const isGodlikeDataAvailable = (source) =>
+  sumCounterAtOrAbove(source?.kill_streaks, 9) !== null || source?.max_kill_streak != null;
+const buildAchievementTotalsFromCounts = (counts) => {
+  if (!counts || typeof counts !== 'object') {
+    return null;
+  }
+
+  const rampageCount = sumCounterAtOrAbove(counts.multi_kills, 5);
+  const godlikeCount = sumCounterAtOrAbove(counts.kill_streaks, 9);
+
+  return {
+    rampage: rampageCount ?? 0,
+    godlike: godlikeCount ?? 0,
+    rampageDataAvailable: rampageCount !== null,
+    godlikeDataAvailable: godlikeCount !== null,
+  };
+};
 const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
 const normalizeAccountId = (value) => {
   const parsed = Number.parseInt(String(value), 10);
@@ -670,6 +746,10 @@ const buildMatchRows = (matches, heroesMetaMap, locale) =>
       const kills = match.kills ?? 0;
       const deaths = match.deaths ?? 0;
       const assists = match.assists ?? 0;
+      const rampageCount = resolveRampageCount(match);
+      const godlikeCount = resolveGodlikeCount(match);
+      const rampageDataAvailable = isRampageDataAvailable(match);
+      const godlikeDataAvailable = isGodlikeDataAvailable(match);
 
       return {
         matchId: match.match_id,
@@ -689,6 +769,12 @@ const buildMatchRows = (matches, heroesMetaMap, locale) =>
         durationSec: match.duration ?? 0,
         laneRole: resolveRole(match, locale),
         rank: resolveRank(match, locale),
+        rampageCount,
+        godlikeCount,
+        hasRampage: rampageCount > 0,
+        hasGodlike: godlikeCount > 0,
+        rampageDataAvailable,
+        godlikeDataAvailable,
       };
     });
 
@@ -735,12 +821,14 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
   const locale = getLocaleConfig(lang);
   const client = createOpenDotaClient(lang);
 
-  const [player, matches, latestMatches, heroesMetaMap] = await Promise.all([
+  const [player, matches, latestMatches, heroesMetaMap, counts] = await Promise.all([
     client.getPlayer(accountId, signal),
     client.getPlayerMatchesByDays(accountId, days, signal),
     client.getPlayerLatestMatches(accountId, RECENT_MATCH_FETCH_LIMIT, signal).catch(() => []),
     client.getHeroesMetaMap(signal),
+    client.getPlayerCountsByDays(accountId, days, signal).catch(() => null),
   ]);
+  const achievementTotals = buildAchievementTotalsFromCounts(counts);
 
   const recentMatches = buildRecentMatches(latestMatches, heroesMetaMap, locale);
   const validMatches = matches.filter((item) => item.start_time);
@@ -755,6 +843,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
       recentMatches,
       windowMatches: [],
       metrics: summarizeDashboard([]),
+      achievementTotals,
       totalMatches: 0,
       latestMatchStartTime: recentMatches[0]?.startTime ?? null,
     };
@@ -773,6 +862,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     recentMatches,
     windowMatches,
     metrics: summarizeDashboard(heroPerformance),
+    achievementTotals,
     totalMatches: validMatches.length,
     latestMatchStartTime: validMatches[0]?.start_time ?? null,
   };
@@ -816,6 +906,10 @@ export const fetchRecentMatchDetail = async (
   const teamKills = resolveTeamKills(players, player.player_slot);
   const killParticipation = teamKills > 0 ? Number((((kills + assists) / teamKills) * 100).toFixed(1)) : null;
   const timeline = buildPurchaseTimeline(player, itemMeta);
+  const rampageCount = resolveRampageCount(player);
+  const godlikeCount = resolveGodlikeCount(player);
+  const rampageDataAvailable = isRampageDataAvailable(player);
+  const godlikeDataAvailable = isGodlikeDataAvailable(player);
 
   const heroMeta = heroesMetaMap.get(player.hero_id);
   const impactScore = resolveImpactScore(isWin, kda, goldPerMin, killParticipation);
@@ -841,6 +935,12 @@ export const fetchRecentMatchDetail = async (
       xpPerMin,
       killParticipation,
       impactScore,
+      rampageCount,
+      godlikeCount,
+      hasRampage: rampageCount > 0,
+      hasGodlike: godlikeCount > 0,
+      rampageDataAvailable,
+      godlikeDataAvailable,
     },
     core: {
       heroDamage: toFiniteOrNull(player.hero_damage),

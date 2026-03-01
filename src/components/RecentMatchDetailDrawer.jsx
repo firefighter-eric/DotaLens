@@ -55,6 +55,10 @@ const fallbackDetailCopy = {
     win: '胜利',
     loss: '失败',
   },
+  tags: {
+    rampage: '暴走',
+    godlike: '超神',
+  },
   units: {
     percent: '%',
     second: '秒',
@@ -126,6 +130,7 @@ const formatPlayerKda = (player, copy) => {
   const kda = Number.isFinite(player.kda) ? player.kda.toFixed(2) : copy.emptyValue;
   return `${player.kills ?? 0}/${player.deaths ?? 0}/${player.assists ?? 0} (${kda})`;
 };
+const formatAchievementTagLabel = (label, count) => (count > 1 ? `${label} x${count}` : label);
 
 const getAvatarInitial = (name, fallback = '?') => {
   const text = String(name ?? '').trim();
@@ -179,6 +184,30 @@ function RecentMatchDetailDrawer({
   const allPlayers = Array.isArray(content?.allPlayers) ? content.allPlayers : [];
   const radiantPlayers = allPlayers.filter((item) => item.team === 'radiant');
   const direPlayers = allPlayers.filter((item) => item.team === 'dire');
+  const rampageCount = Number.isFinite(overview.rampageCount)
+    ? Math.max(0, Math.trunc(overview.rampageCount))
+    : overview.hasRampage
+      ? 1
+      : 0;
+  const godlikeCount = Number.isFinite(overview.godlikeCount)
+    ? Math.max(0, Math.trunc(overview.godlikeCount))
+    : overview.hasGodlike
+      ? 1
+      : 0;
+  const achievementTags = [
+    rampageCount > 0
+      ? {
+          key: 'rampage',
+          label: formatAchievementTagLabel(effectiveCopy.tags?.rampage || fallbackDetailCopy.tags.rampage, rampageCount),
+        }
+      : null,
+    godlikeCount > 0
+      ? {
+          key: 'godlike',
+          label: formatAchievementTagLabel(effectiveCopy.tags?.godlike || fallbackDetailCopy.tags.godlike, godlikeCount),
+        }
+      : null,
+  ].filter(Boolean);
 
   return (
     <div className="match-detail-backdrop" role="presentation" onClick={onClose}>
@@ -205,6 +234,11 @@ function RecentMatchDetailDrawer({
                 {effectiveCopy.result[result] ?? effectiveCopy.emptyValue}
               </span>
             ) : null}
+            {achievementTags.map((tag) => (
+              <span key={tag.key} className={`detail-achievement-tag is-${tag.key}`}>
+                {tag.label}
+              </span>
+            ))}
             <button type="button" className="match-detail-close" onClick={onClose} aria-label={effectiveCopy.closeAriaLabel}>
               ×
             </button>

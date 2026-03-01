@@ -12,6 +12,10 @@ const PLAYER_MATCH_PROJECT_FIELDS = [
   'deaths',
   'assists',
   'hero_damage',
+  'multi_kills',
+  'kill_streaks',
+  'max_kill_streak',
+  'rampages',
   'lane_role',
   'is_roaming',
   'average_rank',
@@ -225,6 +229,10 @@ export const createOpenDotaClient = (lang = 'zh') => {
   return {
     getPlayer: (accountId, signal) => fetchJson(`/players/${accountId}`, signal, locale),
     getMatchById: (matchId, signal) => fetchJson(`/matches/${matchId}`, signal, locale),
+    getPlayerCountsByDays: (accountId, days, signal) => {
+      const safeDays = toPositiveInt(days, 14);
+      return fetchJson(`/players/${accountId}/counts?date=${safeDays}&significant=0`, signal, locale);
+    },
     getPlayerMatchesByDays: async (accountId, days, signal) => {
       const safeDays = toPositiveInt(days, 14);
       const projectQuery = PLAYER_MATCH_PROJECT_FIELDS.map((field) => `project=${field}`).join('&');

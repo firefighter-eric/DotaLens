@@ -132,6 +132,10 @@ const copy = {
       worstHeroSubtext: ({ impact, avgGpm }) => `影响力 ${impact} / 平均 GPM ${avgGpm}`,
       mostPlayedHero: '最常玩英雄',
       mostPlayedHeroSubtext: ({ matches, winRate }) => `${matches} 场 / 胜率 ${winRate}%`,
+      rampageCount: '暴走次数',
+      rampageCountSubtext: (days) => `最近 ${days} 天内触发`,
+      godlikeCount: '超神次数',
+      godlikeCountSubtext: (days) => `最近 ${days} 天内触发`,
     },
     trend: {
       title: (days) => `${days} 天胜率走势`,
@@ -292,6 +296,10 @@ const copy = {
           win: '胜利',
           loss: '失败',
         },
+        tags: {
+          rampage: '暴走',
+          godlike: '超神',
+        },
         units: {
           percent: '%',
           second: '秒',
@@ -450,6 +458,10 @@ const copy = {
       worstHeroSubtext: ({ impact, avgGpm }) => `Impact ${impact} / Avg GPM ${avgGpm}`,
       mostPlayedHero: 'Most Played Hero',
       mostPlayedHeroSubtext: ({ matches, winRate }) => `${matches} matches / Win rate ${winRate}%`,
+      rampageCount: 'Rampages',
+      rampageCountSubtext: (days) => `Triggered in the last ${days} days`,
+      godlikeCount: 'Godlikes',
+      godlikeCountSubtext: (days) => `Triggered in the last ${days} days`,
     },
     trend: {
       title: (days) => `${days}-Day Win Rate Trend`,
@@ -610,6 +622,10 @@ const copy = {
         result: {
           win: 'Win',
           loss: 'Loss',
+        },
+        tags: {
+          rampage: 'Rampage',
+          godlike: 'Godlike',
         },
         units: {
           percent: '%',

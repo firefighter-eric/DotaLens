@@ -125,6 +125,16 @@ const createMockDashboard = (copy, lang = 'zh') => {
     attribute: localizeMockAttribute(hero.attribute, lang),
   }));
   const metrics = summarizeDashboard(localizedHeroPerformance);
+  const achievementTotals = recentMatches.reduce(
+    (acc, match) => {
+      const rampageCount = toFiniteOrNull(match?.rampageCount);
+      const godlikeCount = toFiniteOrNull(match?.godlikeCount);
+      acc.rampage += rampageCount == null ? (match?.hasRampage ? 1 : 0) : Math.max(0, Math.trunc(rampageCount));
+      acc.godlike += godlikeCount == null ? (match?.hasGodlike ? 1 : 0) : Math.max(0, Math.trunc(godlikeCount));
+      return acc;
+    },
+    { rampage: 0, godlike: 0, rampageDataAvailable: true, godlikeDataAvailable: true }
+  );
   return {
     source: 'mock',
     playerName: copy.misc.samplePlayerName,
@@ -136,6 +146,7 @@ const createMockDashboard = (copy, lang = 'zh') => {
     recentMatches,
     windowMatches: recentMatches,
     metrics,
+    achievementTotals,
   };
 };
 
@@ -235,6 +246,8 @@ const createMockRecentMatchDetail = (match, lang) => {
   const normalizedGpm = Number.isFinite(match.goldPerMin) ? match.goldPerMin : 0;
   const normalizedXpm = Number.isFinite(match.xpPerMin) ? match.xpPerMin : 0;
   const normalizedKda = Number.isFinite(match.kda) ? match.kda : 0;
+  const rampageCount = Number.isFinite(match.rampageCount) ? Math.max(0, Math.trunc(match.rampageCount)) : match.hasRampage ? 1 : 0;
+  const godlikeCount = Number.isFinite(match.godlikeCount) ? Math.max(0, Math.trunc(match.godlikeCount)) : match.hasGodlike ? 1 : 0;
   const killParticipation = Math.min(95, Math.max(18, normalizedKda * 12));
 
   const isZh = lang !== 'en';
@@ -314,6 +327,10 @@ const createMockRecentMatchDetail = (match, lang) => {
       xpPerMin: Number.isFinite(match.xpPerMin) ? match.xpPerMin : null,
       killParticipation: Number(killParticipation.toFixed(1)),
       impactScore,
+      rampageCount,
+      godlikeCount,
+      hasRampage: rampageCount > 0,
+      hasGodlike: godlikeCount > 0,
     },
     core: {
       heroDamage: Math.round(normalizedGpm * 40 + normalizedXpm * 5),
@@ -808,6 +825,31 @@ function App() {
     return dashboard.windowMatches ?? [];
   }, [dashboard.recentMatches, dashboard.windowMatches]);
   const overviewExtremes = useMemo(() => summarizeOverviewExtremes(overviewExtremeMatches), [overviewExtremeMatches]);
+  const overviewAchievementTotals = useMemo(() => {
+    if (dashboard.achievementTotals) {
+      return {
+        rampage: Math.max(0, Math.trunc(toFiniteOrNull(dashboard.achievementTotals.rampage) ?? 0)),
+        godlike: Math.max(0, Math.trunc(toFiniteOrNull(dashboard.achievementTotals.godlike) ?? 0)),
+        rampageDataMatches: dashboard.achievementTotals.rampageDataAvailable ? 1 : 0,
+        godlikeDataMatches: dashboard.achievementTotals.godlikeDataAvailable ? 1 : 0,
+      };
+    }
+
+    return (dashboard.windowMatches ?? []).reduce(
+      (acc, match) => {
+        const rampageCount = toFiniteOrNull(match?.rampageCount);
+        const godlikeCount = toFiniteOrNull(match?.godlikeCount);
+        const rampageDataAvailable = match?.rampageDataAvailable === true || (rampageCount != null && rampageCount > 0);
+        const godlikeDataAvailable = match?.godlikeDataAvailable === true || (godlikeCount != null && godlikeCount > 0);
+        acc.rampage += rampageCount == null ? (match?.hasRampage ? 1 : 0) : Math.max(0, Math.trunc(rampageCount));
+        acc.godlike += godlikeCount == null ? (match?.hasGodlike ? 1 : 0) : Math.max(0, Math.trunc(godlikeCount));
+        acc.rampageDataMatches += rampageDataAvailable ? 1 : 0;
+        acc.godlikeDataMatches += godlikeDataAvailable ? 1 : 0;
+        return acc;
+      },
+      { rampage: 0, godlike: 0, rampageDataMatches: 0, godlikeDataMatches: 0 }
+    );
+  }, [dashboard.achievementTotals, dashboard.windowMatches]);
   const catalogLocale = lang === 'en' ? 'en' : 'zh';
   const heroCategories = useMemo(
     () => [
@@ -1405,6 +1447,26 @@ function App() {
                   winRate: mostPlayedHero.winRate,
                 })}
                 accent="teal"
+              />
+              <StatCard
+                label={copy.cards.rampageCount}
+                value={
+                  overviewAchievementTotals.rampageDataMatches > 0
+                    ? overviewAchievementTotals.rampage
+                    : copy.recentMatches.emptyValue
+                }
+                subtext={copy.cards.rampageCountSubtext(days)}
+                accent="red"
+              />
+              <StatCard
+                label={copy.cards.godlikeCount}
+                value={
+                  overviewAchievementTotals.godlikeDataMatches > 0
+                    ? overviewAchievementTotals.godlike
+                    : copy.recentMatches.emptyValue
+                }
+                subtext={copy.cards.godlikeCountSubtext(days)}
+                accent="gold"
               />
             </section>
 
