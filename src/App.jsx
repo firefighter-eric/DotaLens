@@ -129,6 +129,7 @@ const createMockDashboard = (copy, lang = 'zh') => {
   return {
     source: 'mock',
     playerName: copy.misc.samplePlayerName,
+    playerAvatar: '',
     totalMatches: metrics.totalMatches,
     heroPerformance: localizedHeroPerformance,
     dailyWinRate,
@@ -193,6 +194,14 @@ const formatMatchDate = (startTime, lang) => {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date(startTime * 1000));
+};
+
+const getAvatarInitial = (value, fallback = '?') => {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return fallback;
+  }
+  return text.slice(0, 1).toUpperCase();
 };
 
 const createMockRecentMatchDetail = (match, lang) => {
@@ -359,6 +368,7 @@ const createDefaultAccount = () => ({
   rawId: DEFAULT_STEAM32_ID,
   accountId: DEFAULT_STEAM32_ID,
   nickname: DEFAULT_SAMPLE_PLAYER_NAME,
+  avatar: '',
 });
 
 const sanitizePersistedAccount = (value) => {
@@ -370,6 +380,7 @@ const sanitizePersistedAccount = (value) => {
   const rawId = typeof value.rawId === 'string' ? value.rawId.trim() : '';
   const accountId = typeof value.accountId === 'string' ? value.accountId.trim() : '';
   const nickname = typeof value.nickname === 'string' ? value.nickname.trim() : '';
+  const avatar = typeof value.avatar === 'string' ? value.avatar.trim() : '';
 
   if (!idType || !rawId || !accountId || !/^\d+$/.test(rawId) || !/^\d+$/.test(accountId)) {
     return null;
@@ -380,6 +391,7 @@ const sanitizePersistedAccount = (value) => {
     rawId,
     accountId,
     nickname: nickname || rawId,
+    avatar,
   };
 };
 
@@ -579,6 +591,7 @@ function App() {
               ? {
                   ...account,
                   nickname: data.playerName,
+                  avatar: data.playerAvatar || account.avatar || '',
                 }
               : account
           )
@@ -649,6 +662,7 @@ function App() {
           heroId: selectedRecentMatch.heroId,
           hero: selectedRecentMatch.hero,
           heroAvatar: selectedRecentMatch.heroAvatar,
+          playerAvatar: dashboard.playerAvatar,
           playerSlot: selectedRecentMatch.playerSlot,
           startTime: selectedRecentMatch.startTime,
           durationSec: selectedRecentMatch.durationSec,
@@ -676,6 +690,7 @@ function App() {
   }, [
     selectedRecentMatch,
     dashboard.source,
+    dashboard.playerAvatar,
     queryAccountId,
     lang,
     copy.recentMatches?.detail?.loadFailed,
@@ -917,6 +932,7 @@ function App() {
       rawId: normalizedId,
       accountId,
       nickname: normalizedId,
+      avatar: '',
     };
 
     const hasSaved = savedAccounts.some((item) => isSameAccount(item, nextAccount));
@@ -1089,6 +1105,8 @@ function App() {
     (account) => account.accountId === queryAccountId && account.rawId === queryRawId && account.idType === queryIdType
   );
   const activeAccountNickname = activeAccount?.nickname || dashboard.playerName || queryRawId || copy.query.unknownNickname;
+  const activeAccountAvatar = activeAccount?.avatar || dashboard.playerAvatar || '';
+  const activeAccountAvatarFallback = getAvatarInitial(activeAccountNickname);
   const overviewInsights = [
     copy.overview.insightWinRate({
       overallWinRate: dashboard.metrics.overallWinRate,
@@ -1128,7 +1146,14 @@ function App() {
                 onClick={() => setIsAccountModalOpen(true)}
                 aria-label={copy.query.openAccountModal}
               >
-                <span className="account-summary-name">{activeAccountNickname}</span>
+                <span className="account-summary-main">
+                  {activeAccountAvatar ? (
+                    <img src={activeAccountAvatar} alt={activeAccountNickname} className="account-avatar account-avatar--summary" loading="lazy" />
+                  ) : (
+                    <span className="account-avatar account-avatar--summary is-fallback">{activeAccountAvatarFallback}</span>
+                  )}
+                  <span className="account-summary-name">{activeAccountNickname}</span>
+                </span>
               </button>
             </div>
           </div>
@@ -1196,6 +1221,8 @@ function App() {
                     account.accountId === queryAccountId &&
                     account.rawId === queryRawId &&
                     account.idType === queryIdType;
+                  const accountName = account.nickname || account.rawId;
+                  const accountAvatarFallback = getAvatarInitial(accountName);
 
                   return (
                     <div key={`${account.idType}:${account.rawId}`} className={`saved-account-item ${isActive ? 'is-active' : ''}`}>
@@ -1205,9 +1232,18 @@ function App() {
                         onClick={() => handleSwitchAccount(account)}
                         disabled={loading}
                       >
-                        <span className="saved-account-name">{account.nickname || account.rawId}</span>
-                        <span className="saved-account-meta">
-                          {copy.query.idTypes[account.idType]} · {account.rawId}
+                        <span className="saved-account-main">
+                          {account.avatar ? (
+                            <img src={account.avatar} alt={accountName} className="account-avatar account-avatar--saved" loading="lazy" />
+                          ) : (
+                            <span className="account-avatar account-avatar--saved is-fallback">{accountAvatarFallback}</span>
+                          )}
+                          <span className="saved-account-text">
+                            <span className="saved-account-name">{accountName}</span>
+                            <span className="saved-account-meta">
+                              {copy.query.idTypes[account.idType]} · {account.rawId}
+                            </span>
+                          </span>
                         </span>
                       </button>
                       <button

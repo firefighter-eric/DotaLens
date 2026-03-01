@@ -127,6 +127,14 @@ const formatPlayerKda = (player, copy) => {
   return `${player.kills ?? 0}/${player.deaths ?? 0}/${player.assists ?? 0} (${kda})`;
 };
 
+const getAvatarInitial = (name, fallback = '?') => {
+  const text = String(name ?? '').trim();
+  if (!text) {
+    return fallback;
+  }
+  return text.slice(0, 1).toUpperCase();
+};
+
 function RecentMatchDetailDrawer({
   open = false,
   copy = fallbackDetailCopy,
@@ -221,118 +229,120 @@ function RecentMatchDetailDrawer({
                   const teamNetWorth = team.players.reduce((sum, player) => sum + (player.netWorth ?? 0), 0);
 
                   return (
-                  <article key={team.key} className={`match-player-team is-${team.key}`}>
-                    <div className="match-player-team-head">
-                      <p className="match-player-team-title">{team.label}</p>
-                      <div className="match-player-team-metrics">
-                        <span>
-                          {effectiveCopy.labels.teamKills} {teamKills}
-                        </span>
-                        <span>
-                          {effectiveCopy.labels.teamNetWorth} {formatNumber(teamNetWorth, effectiveCopy.emptyValue)}
-                        </span>
-                      </div>
-                    </div>
-                    {team.players.length ? (
-                      <div className="match-player-scoreboard-wrap">
-                        <div className="match-player-scoreboard is-expanded">
-                          {team.players.map((player) => (
-                            <div key={player.id} className={`match-player-row ${player.isCurrentPlayer ? 'is-current' : ''}`}>
-                              <div className="col-player">
-                                <div className="hero-name-cell">
-                                  {player.heroAvatar ? (
-                                    <img src={player.heroAvatar} alt={player.hero} className="hero-avatar" loading="lazy" />
-                                  ) : null}
-                                  <strong>{player.hero || effectiveCopy.emptyValue}</strong>
-                                </div>
-                                <div className="match-player-name">
-                                  <span>{player.playerName || effectiveCopy.emptyValue}</span>
-                                  {player.isCurrentPlayer ? (
-                                    <em className="match-player-current-tag">{effectiveCopy.labels.currentPlayer}</em>
-                                  ) : null}
-                                </div>
-                                <div className="match-player-submeta">
-                                  <span>
-                                    {effectiveCopy.labels.killParticipation}:{' '}
-                                    {formatPercent(player.killParticipation, effectiveCopy)}
-                                  </span>
-                                  <span>
-                                    {effectiveCopy.labels.playerDamageShare}:{' '}
-                                    {formatPercent(player.damageShare, effectiveCopy)}
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="match-player-metrics-grid">
-                                <div className="match-player-metric">
-                                  <span className="match-player-metric-label">{effectiveCopy.labels.playerKda}</span>
-                                  <span className="match-player-metric-value tabular-number col-kda">
-                                    {formatPlayerKda(player, effectiveCopy)}
-                                  </span>
-                                </div>
-                                <div className="match-player-metric">
-                                  <span className="match-player-metric-label">{effectiveCopy.labels.playerGpmXpm}</span>
-                                  <span className="match-player-metric-value tabular-number col-gpm-xpm">
-                                    {Number.isFinite(player.goldPerMin) ? player.goldPerMin : effectiveCopy.emptyValue} /{' '}
-                                    {Number.isFinite(player.xpPerMin) ? player.xpPerMin : effectiveCopy.emptyValue}
-                                  </span>
-                                </div>
-                                <div className="match-player-metric">
-                                  <span className="match-player-metric-label">{effectiveCopy.labels.playerNetWorth}</span>
-                                  <span className="match-player-metric-value tabular-number">
-                                    {formatNumber(player.netWorth, effectiveCopy.emptyValue)}
-                                  </span>
-                                </div>
-                                <div className="match-player-metric">
-                                  <span className="match-player-metric-label">{effectiveCopy.labels.playerDamage}</span>
-                                  <span className="match-player-metric-value tabular-number">
-                                    {formatNumber(player.heroDamage, effectiveCopy.emptyValue)} /{' '}
-                                    {formatNumber(player.heroHealing, effectiveCopy.emptyValue)}
-                                  </span>
-                                </div>
-                                <div className="match-player-metric">
-                                  <span className="match-player-metric-label">{effectiveCopy.labels.playerLastHitsDenies}</span>
-                                  <span className="match-player-metric-value tabular-number">
-                                    {formatNumber(player.lastHits, effectiveCopy.emptyValue)} / {formatNumber(player.denies, effectiveCopy.emptyValue)}
-                                  </span>
-                                </div>
-                                <div className="match-player-metric">
-                                  <span className="match-player-metric-label">{effectiveCopy.labels.playerRank}</span>
-                                  <span className="match-player-metric-value">{player.rank || effectiveCopy.emptyValue}</span>
-                                </div>
-                                <div className="match-player-metric is-items">
-                                  <span className="match-player-metric-label">{effectiveCopy.labels.playerItems}</span>
-                                  <div className="match-player-metric-value col-items">
-                                    {player.items?.length ? (
-                                      player.items.slice(0, 7).map((item, index) => (
-                                        item.icon ? (
-                                          <img
-                                            key={`${item.id}-${index}`}
-                                            src={item.icon}
-                                            alt={item.name}
-                                            title={item.name}
-                                            className={`player-item-icon ${item.isNeutral ? 'is-neutral' : ''}`}
-                                            loading="lazy"
-                                          />
-                                        ) : (
-                                          <span key={`${item.id}-${index}`} className="player-item-fallback" title={item.name}>
-                                            {item.name.slice(0, 2)}
-                                          </span>
-                                        )
-                                      ))
-                                    ) : (
-                                      <span className="empty-text">{effectiveCopy.emptyValue}</span>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
+                    <article key={team.key} className={`match-player-team is-${team.key}`}>
+                      <div className="match-player-team-head">
+                        <p className="match-player-team-title">{team.label}</p>
+                        <div className="match-player-team-metrics">
+                          <span>
+                            {effectiveCopy.labels.teamKills} {teamKills}
+                          </span>
+                          <span>
+                            {effectiveCopy.labels.teamNetWorth} {formatNumber(teamNetWorth, effectiveCopy.emptyValue)}
+                          </span>
                         </div>
                       </div>
-                    ) : (
-                      <p className="empty-text">{effectiveCopy.emptyValue}</p>
-                    )}
-                  </article>
+                      {team.players.length ? (
+                        <div className="match-player-scoreboard-wrap">
+                          <table className="match-player-scoreboard-table">
+                            <thead>
+                              <tr>
+                                <th scope="col" className="col-player">{effectiveCopy.labels.player}</th>
+                                <th scope="col" className="col-kda">{effectiveCopy.labels.playerKda}</th>
+                                <th scope="col" className="col-gpm-xpm">{effectiveCopy.labels.playerGpmXpm}</th>
+                                <th scope="col" className="col-net-worth">{effectiveCopy.labels.playerNetWorth}</th>
+                                <th scope="col" className="col-items">{effectiveCopy.labels.playerItems}</th>
+                                <th scope="col" className="col-damage">{effectiveCopy.labels.playerDamage}</th>
+                                <th scope="col" className="col-participation">
+                                  {effectiveCopy.labels.killParticipation} / {effectiveCopy.labels.playerDamageShare}
+                                </th>
+                                <th scope="col" className="col-last-hits">{effectiveCopy.labels.playerLastHitsDenies}</th>
+                                <th scope="col" className="col-rank">{effectiveCopy.labels.playerRank}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {team.players.map((player) => (
+                                <tr key={player.id} className={player.isCurrentPlayer ? 'is-current' : ''}>
+                                  <td className="col-player">
+                                    <div className="hero-name-cell">
+                                      {player.heroAvatar ? (
+                                        <img src={player.heroAvatar} alt={player.hero} className="hero-avatar" loading="lazy" />
+                                      ) : null}
+                                      <strong>{player.hero || effectiveCopy.emptyValue}</strong>
+                                    </div>
+                                    <div className="match-player-name">
+                                      {player.playerAvatar ? (
+                                        <img
+                                          src={player.playerAvatar}
+                                          alt={player.playerName || effectiveCopy.emptyValue}
+                                          className="player-avatar"
+                                          loading="lazy"
+                                        />
+                                      ) : (
+                                        <span className="player-avatar is-fallback">
+                                          {getAvatarInitial(player.playerName, effectiveCopy.emptyValue)}
+                                        </span>
+                                      )}
+                                      <span
+                                        className={`match-player-name-text ${player.isCurrentPlayer ? 'is-current' : ''}`.trim()}
+                                      >
+                                        {player.playerName || effectiveCopy.emptyValue}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="tabular-number col-kda">
+                                    {formatPlayerKda(player, effectiveCopy)}
+                                  </td>
+                                  <td className="tabular-number col-gpm-xpm">
+                                    {Number.isFinite(player.goldPerMin) ? player.goldPerMin : effectiveCopy.emptyValue} /{' '}
+                                    {Number.isFinite(player.xpPerMin) ? player.xpPerMin : effectiveCopy.emptyValue}
+                                  </td>
+                                  <td className="tabular-number col-net-worth">
+                                    {formatNumber(player.netWorth, effectiveCopy.emptyValue)}
+                                  </td>
+                                  <td className="col-items">
+                                    <div className="match-player-items-cell">
+                                      {player.items?.length ? (
+                                        player.items.slice(0, 7).map((item, index) => (
+                                          item.icon ? (
+                                            <img
+                                              key={`${item.id}-${index}`}
+                                              src={item.icon}
+                                              alt={item.name}
+                                              title={item.name}
+                                              className={`player-item-icon ${item.isNeutral ? 'is-neutral' : ''}`}
+                                              loading="lazy"
+                                            />
+                                          ) : (
+                                            <span key={`${item.id}-${index}`} className="player-item-fallback" title={item.name}>
+                                              {String(item.name ?? effectiveCopy.emptyValue).slice(0, 2)}
+                                            </span>
+                                          )
+                                        ))
+                                      ) : (
+                                        <span className="empty-text">{effectiveCopy.emptyValue}</span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="tabular-number col-damage">
+                                    {formatNumber(player.heroDamage, effectiveCopy.emptyValue)} /{' '}
+                                    {formatNumber(player.heroHealing, effectiveCopy.emptyValue)}
+                                  </td>
+                                  <td className="tabular-number col-participation">
+                                    {formatPercent(player.killParticipation, effectiveCopy)} / {formatPercent(player.damageShare, effectiveCopy)}
+                                  </td>
+                                  <td className="tabular-number col-last-hits">
+                                    {formatNumber(player.lastHits, effectiveCopy.emptyValue)} / {formatNumber(player.denies, effectiveCopy.emptyValue)}
+                                  </td>
+                                  <td className="col-rank">{player.rank || effectiveCopy.emptyValue}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="empty-text">{effectiveCopy.emptyValue}</p>
+                      )}
+                    </article>
                   );
                 })}
               </div>
