@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const OPEN_DOTA_SITE = 'https://www.opendota.com';
 const STEAM_CDN_SITE = 'https://cdn.steamstatic.com';
 const OPEN_DOTA_HEROES_API = 'https://api.opendota.com/api/constants/heroes';
+const DOTA2_HERO_LIST_API = 'https://www.dota2.com/datafeed/herolist?language=schinese';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,6 +58,31 @@ const fetchHeroes = async () => {
   return [];
 };
 
+const fetchHeroNames = async () => {
+  const response = await fetch(DOTA2_HERO_LIST_API);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch hero names, HTTP ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const heroes = payload?.result?.data?.heroes;
+  if (!Array.isArray(heroes)) {
+    return new Map();
+  }
+
+  return heroes.reduce((map, hero) => {
+    if (hero?.id == null) {
+      return map;
+    }
+
+    map.set(hero.id, {
+      nameZh: hero.name_loc ?? '',
+      nameEn: hero.name_english_loc ?? '',
+    });
+    return map;
+  }, new Map());
+};
+
 const downloadAvatar = async (hero) => {
   const remoteUrl = toSteamCdnUrl(hero.img);
   if (!remoteUrl) {
@@ -98,7 +124,7 @@ const writeCatalog = async (catalog) => {
 
 const run = async () => {
   await mkdir(avatarDir, { recursive: true });
-  const heroes = await fetchHeroes();
+  const [heroes, heroNames] = await Promise.all([fetchHeroes(), fetchHeroNames()]);
   const sortedHeroes = [...heroes].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
   const catalog = [];
 
@@ -108,10 +134,15 @@ const run = async () => {
     }
 
     const avatar = await downloadAvatar(hero);
+    const localizedNames = heroNames.get(hero.id);
+    const nameEn = localizedNames?.nameEn || hero.localized_name || `Hero #${hero.id}`;
+    const nameZh = localizedNames?.nameZh || nameEn;
+
     catalog.push({
       id: hero.id,
       key: toHeroSlug(hero),
-      name: hero.localized_name ?? `Hero #${hero.id}`,
+      nameEn,
+      nameZh,
       avatar: avatar?.localPath ?? '',
       avatarSource: avatar?.sourceUrl ?? '',
     });

@@ -56,9 +56,10 @@ function RecentMatchesPanel({ matches = [], summary, copy = fallbackCopy, lang =
   const safeSummary = summary ?? {
     winRate: '0.0',
     avgKda: '0.00',
-    avgGpm: 0,
+    avgGpm: null,
     avgDurationMin: 0,
   };
+  const avgGpmValue = Number.isFinite(safeSummary.avgGpm) ? safeSummary.avgGpm : copy.emptyValue;
   const title = typeof copy.title === 'function' ? copy.title(limit) : copy.title;
 
   return (
@@ -96,7 +97,7 @@ function RecentMatchesPanel({ matches = [], summary, copy = fallbackCopy, lang =
             </div>
             <div className="recent-summary-item">
               <span>{copy.summary.avgGpm}</span>
-              <strong>{safeSummary.avgGpm}</strong>
+              <strong>{avgGpmValue}</strong>
             </div>
             <div className="recent-summary-item">
               <span>{copy.summary.avgDuration}</span>
