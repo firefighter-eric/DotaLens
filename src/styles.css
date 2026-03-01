@@ -162,9 +162,47 @@ input:disabled {
   cursor: pointer;
 }
 
+.account-summary-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .account-summary-name {
   display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.account-avatar {
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid #d1d9e5;
+  flex-shrink: 0;
+}
+
+.account-avatar--summary {
+  width: 28px;
+  height: 28px;
+}
+
+.account-avatar--saved {
+  width: 24px;
+  height: 24px;
+}
+
+.account-avatar.is-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 0.72rem;
   font-weight: 700;
 }
 
@@ -290,6 +328,18 @@ input:disabled {
   padding: 6px 8px;
   text-align: left;
   cursor: pointer;
+}
+
+.saved-account-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.saved-account-text {
+  display: block;
+  min-width: 0;
 }
 
 .saved-account-item.is-active .saved-account-btn {
@@ -1460,73 +1510,115 @@ tbody tr:hover {
 }
 
 .match-player-scoreboard-wrap {
-  overflow-x: hidden;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
 
-.match-player-scoreboard {
-  min-width: 0;
+.match-player-scoreboard-table {
   width: 100%;
-  display: grid;
-  gap: 6px;
+  min-width: 960px;
+  border-collapse: separate;
+  border-spacing: 0 9px;
+  table-layout: fixed;
 }
 
-.match-player-row {
-  display: grid;
-  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1.5fr);
-  gap: 8px;
-  border: 1px solid #dde7f1;
-  border-radius: 10px;
-  background: #ffffff;
-  padding: 8px;
-  align-items: center;
-  min-height: 54px;
-}
-
-.match-player-scoreboard.is-expanded .match-player-row {
-  grid-template-columns:
-    minmax(0, 2.25fr)
-    minmax(0, 1fr)
-    minmax(0, 1.15fr)
-    minmax(0, 1fr)
-    minmax(0, 1.5fr)
-    minmax(0, 1.2fr)
-    minmax(0, 1.05fr)
-    minmax(0, 1.05fr);
-}
-
-.match-player-row.is-head {
-  background: #f1f5f9;
-  border-style: dashed;
-  min-height: 0;
-  padding-top: 6px;
-  padding-bottom: 6px;
-}
-
-.match-player-row.is-head span {
-  font-size: 0.73rem;
+.match-player-scoreboard-table th {
+  text-align: left;
+  font-size: 0.82rem;
   color: #64748b;
   font-weight: 700;
+  background: #eef4fb;
+  border-top: 1px dashed #cbdcf0;
+  border-bottom: 1px dashed #cbdcf0;
+  padding: 9px 10px;
 }
 
-.match-player-row.is-current {
-  border-color: rgba(16, 163, 127, 0.45);
-  background: rgba(16, 163, 127, 0.09);
+.match-player-scoreboard-table th:first-child {
+  border-left: 1px dashed #cbdcf0;
+  border-radius: 10px 0 0 10px;
 }
 
-.match-player-row .is-metric {
-  text-align: right;
+.match-player-scoreboard-table th:last-child {
+  border-right: 1px dashed #cbdcf0;
+  border-radius: 0 10px 10px 0;
+}
+
+.match-player-scoreboard-table td {
+  vertical-align: middle;
   font-size: 0.8rem;
   color: #0f172a;
-  line-height: 1.24;
-  min-width: 0;
+  background: #ffffff;
+  border-top: 1px solid #dde7f1;
+  border-bottom: 1px solid #dde7f1;
+  padding: 8px 10px;
 }
 
-.match-player-row .col-items {
+.match-player-scoreboard-table tbody td:first-child {
+  border-left: 1px solid #dde7f1;
+  border-radius: 10px 0 0 10px;
+}
+
+.match-player-scoreboard-table tbody td:last-child {
+  border-right: 1px solid #dde7f1;
+  border-radius: 0 10px 10px 0;
+}
+
+.match-player-scoreboard-table th.col-player,
+.match-player-scoreboard-table td.col-player {
+  width: 12%;
+}
+
+.match-player-scoreboard-table th.col-kda,
+.match-player-scoreboard-table td.col-kda {
+  width: 10%;
+}
+
+.match-player-scoreboard-table th.col-gpm-xpm,
+.match-player-scoreboard-table td.col-gpm-xpm {
+  width: 10%;
+}
+
+.match-player-scoreboard-table th.col-net-worth,
+.match-player-scoreboard-table td.col-net-worth {
+  width: 9%;
+}
+
+.match-player-scoreboard-table th.col-items,
+.match-player-scoreboard-table td.col-items {
+  width: 18%;
+}
+
+.match-player-scoreboard-table th.col-damage,
+.match-player-scoreboard-table td.col-damage {
+  width: 12%;
+}
+
+.match-player-scoreboard-table th.col-participation,
+.match-player-scoreboard-table td.col-participation {
+  width: 12%;
+}
+
+.match-player-scoreboard-table th.col-last-hits,
+.match-player-scoreboard-table td.col-last-hits {
+  width: 10%;
+}
+
+.match-player-scoreboard-table th.col-rank,
+.match-player-scoreboard-table td.col-rank {
+  width: 7%;
+}
+
+.match-player-scoreboard-table th:not(.col-player):not(.col-items),
+.match-player-scoreboard-table td:not(.col-player):not(.col-items) {
+  text-align: center;
+}
+
+.match-player-items-cell {
   display: flex;
-  justify-content: flex-start;
   gap: 4px;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-start;
 }
 
 .player-item-icon {
@@ -1561,21 +1653,28 @@ tbody tr:hover {
   font-feature-settings: 'tnum' 1;
 }
 
-.match-player-row .col-player {
+.match-player-scoreboard-table td.col-player {
   min-width: 0;
   display: grid;
-  align-content: center;
+  align-content: start;
   gap: 4px;
+  padding: 7px 8px;
+  border-right: 1px solid #dde7f1;
 }
 
-.match-player-row .col-player .hero-name-cell {
+.match-player-scoreboard-table th.col-player {
+  border-right: 1px dashed #cbdcf0;
+}
+
+.match-player-scoreboard-table .col-player .hero-name-cell {
   display: flex;
   align-items: center;
   max-width: 100%;
+  gap: 6px;
 }
 
-.match-player-row .col-player .hero-name-cell strong {
-  font-size: 0.84rem;
+.match-player-scoreboard-table .col-player .hero-name-cell strong {
+  font-size: 0.83rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1585,37 +1684,52 @@ tbody tr:hover {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
   color: #334155;
-  font-size: 0.78rem;
+  font-size: 0.79rem;
   margin-top: 0;
   min-width: 0;
 }
 
-.match-player-name > span {
+.match-player-name-text {
   min-width: 0;
+}
+
+.match-player-name-text.is-current {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(16, 163, 127, 0.45);
+  border-radius: 6px;
+  padding: 1px 6px;
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.player-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid #d1d9e5;
+  flex-shrink: 0;
+}
+
+.player-avatar.is-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 0.62rem;
+  font-weight: 700;
 }
 
 .match-player-submeta {
   margin-top: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   color: #64748b;
-  font-size: 0.72rem;
-}
-
-.match-player-row .col-kda,
-.match-player-row .col-gpm-xpm {
-  white-space: nowrap;
-}
-
-.match-player-row .col-kda {
-  min-width: 0;
-}
-
-.match-player-row .col-gpm-xpm {
-  min-width: 0;
+  font-size: 0.71rem;
 }
 
 .match-player-current-tag {
@@ -1694,20 +1808,13 @@ tbody tr:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .match-player-row {
-    grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.45fr);
+  .match-player-scoreboard-table {
+    min-width: 900px;
   }
 
-  .match-player-scoreboard.is-expanded .match-player-row {
-    grid-template-columns:
-      minmax(0, 2.15fr)
-      minmax(0, 1fr)
-      minmax(0, 1.1fr)
-      minmax(0, 1fr)
-      minmax(0, 1.45fr)
-      minmax(0, 1.15fr)
-      minmax(0, 1fr)
-      minmax(0, 1fr);
+  .match-player-scoreboard-table th,
+  .match-player-scoreboard-table td {
+    padding: 8px 9px;
   }
 }
 
@@ -1814,20 +1921,22 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
-  .match-player-row {
-    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 1fr) minmax(0, 1.25fr);
+  .match-player-scoreboard-table {
+    min-width: 820px;
+    border-spacing: 0 7px;
   }
 
-  .match-player-scoreboard.is-expanded .match-player-row {
-    grid-template-columns:
-      minmax(0, 1.45fr)
-      minmax(0, 1fr)
-      minmax(0, 1.05fr)
-      minmax(0, 1fr)
-      minmax(0, 1.2fr)
-      minmax(0, 1fr)
-      minmax(0, 0.95fr)
-      minmax(0, 0.95fr);
+  .match-player-scoreboard-table th {
+    font-size: 0.74rem;
+    white-space: nowrap;
+  }
+
+  .match-player-scoreboard-table td {
+    font-size: 0.75rem;
+  }
+
+  .match-player-submeta {
+    font-size: 0.68rem;
   }
 
   .match-player-team-metrics {

@@ -307,6 +307,23 @@ const resolvePlayerDisplayName = (player, locale) => {
   return locale.unknownPlayer;
 };
 
+const resolvePlayerAvatar = (player, fallback = '') => {
+  if (!player || typeof player !== 'object') {
+    return fallback;
+  }
+
+  const candidates = [
+    player.avatarfull,
+    player.avatarmedium,
+    player.avatar,
+    player.profile?.avatarfull,
+    player.profile?.avatarmedium,
+    player.profile?.avatar,
+  ];
+  const hit = candidates.find((value) => typeof value === 'string' && value.trim());
+  return hit ? hit.trim() : fallback;
+};
+
 const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, accountId, fallback = {}) => {
   const teamSummary = players.reduce(
     (acc, player) => {
@@ -335,6 +352,7 @@ const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, accountId, fa
       const team = entry.player_slot < 128 ? 'radiant' : 'dire';
       const currentTeam = teamSummary[team];
       const heroDamage = toFiniteOrNull(entry.hero_damage);
+      const isCurrentPlayer = isSamePlayer(entry, accountId, fallback.playerSlot, fallback.heroId);
       const itemIds = [...ITEM_SLOTS.map((slot) => entry[`item_${slot}`]), entry.item_neutral];
       const items = itemIds
         .map((id, index) => {
@@ -354,6 +372,7 @@ const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, accountId, fa
         accountId: entry.account_id ?? null,
         playerSlot: entry.player_slot,
         playerName: resolvePlayerDisplayName(entry, locale),
+        playerAvatar: resolvePlayerAvatar(entry, isCurrentPlayer ? fallback.playerAvatar : ''),
         team,
         heroId: entry.hero_id,
         hero: heroMeta?.name ?? `Hero #${entry.hero_id}`,
@@ -380,7 +399,7 @@ const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, accountId, fa
             ? Number(((heroDamage / currentTeam.heroDamage) * 100).toFixed(1))
             : null,
         items,
-        isCurrentPlayer: isSamePlayer(entry, accountId, fallback.playerSlot, fallback.heroId),
+        isCurrentPlayer,
       };
     })
     .sort((a, b) => {
@@ -588,6 +607,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
   if (validMatches.length === 0) {
     return {
       playerName: player?.profile?.personaname ?? locale.playerFallback(accountId),
+      playerAvatar: resolvePlayerAvatar(player),
       heroPerformance: [],
       dailyWinRate: [],
       rankDistribution: [],
@@ -605,6 +625,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
 
   return {
     playerName: player?.profile?.personaname ?? locale.playerFallback(accountId),
+    playerAvatar: resolvePlayerAvatar(player),
     heroPerformance,
     dailyWinRate,
     rankDistribution,
