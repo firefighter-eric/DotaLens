@@ -5,6 +5,69 @@ export const toPercent = (wins, matches) => {
   return ((wins / matches) * 100).toFixed(1);
 };
 
+const toFiniteOrNull = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
+const toOverviewMatch = (entry) => {
+  if (!entry?.match) {
+    return null;
+  }
+
+  return {
+    matchId: entry.match.matchId ?? null,
+    hero: entry.match.hero ?? '-',
+    heroAvatar: entry.match.heroAvatar ?? '',
+    startTime: entry.match.startTime ?? null,
+    result: entry.match.result ?? null,
+    kills: toFiniteOrNull(entry.match.kills),
+    deaths: toFiniteOrNull(entry.match.deaths),
+    assists: toFiniteOrNull(entry.match.assists),
+    value: entry.value,
+  };
+};
+
+const pickMaxMatch = (matches, valueSelector) =>
+  matches.reduce((best, match) => {
+    const value = valueSelector(match);
+    if (value === null) {
+      return best;
+    }
+    if (!best) {
+      return { match, value };
+    }
+    if (value > best.value) {
+      return { match, value };
+    }
+    if (value < best.value) {
+      return best;
+    }
+
+    const currentStartTime = Number(match.startTime ?? 0);
+    const bestStartTime = Number(best.match.startTime ?? 0);
+    if (currentStartTime > bestStartTime) {
+      return { match, value };
+    }
+    if (currentStartTime < bestStartTime) {
+      return best;
+    }
+
+    const currentMatchId = Number(match.matchId ?? 0);
+    const bestMatchId = Number(best.match.matchId ?? 0);
+    return currentMatchId >= bestMatchId ? { match, value } : best;
+  }, null);
+
+export const summarizeOverviewExtremes = (matches) => {
+  const safeMatches = Array.isArray(matches) ? matches : [];
+
+  return {
+    highestDamageMatch: toOverviewMatch(pickMaxMatch(safeMatches, (match) => toFiniteOrNull(match.heroDamage))),
+    mostKillsMatch: toOverviewMatch(pickMaxMatch(safeMatches, (match) => toFiniteOrNull(match.kills))),
+    mostDeathsMatch: toOverviewMatch(pickMaxMatch(safeMatches, (match) => toFiniteOrNull(match.deaths))),
+  };
+};
+
 export const summarizeDashboard = (heroData) => {
   if (!heroData.length) {
     return {

@@ -521,6 +521,35 @@ const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, accountId, fa
 };
 
 const buildDailyWinRate = (matches, days) => {
+  const resolveTrendSmoothingWindow = (windowDays) => {
+    if (windowDays >= 365) {
+      return 7;
+    }
+    if (windowDays >= 60) {
+      return 5;
+    }
+    if (windowDays >= 30) {
+      return 3;
+    }
+    return 1;
+  };
+
+  const smoothDailyValues = (series, windowSize) => {
+    if (windowSize <= 1 || series.length <= 1) {
+      return series;
+    }
+
+    return series.map((point, index) => {
+      const start = Math.max(0, index - windowSize + 1);
+      const segment = series.slice(start, index + 1);
+      const avgValue = Math.round(segment.reduce((sum, item) => sum + item.value, 0) / segment.length);
+      return {
+        day: point.day,
+        value: avgValue,
+      };
+    });
+  };
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayStartMs = today.getTime();
@@ -547,7 +576,7 @@ const buildDailyWinRate = (matches, days) => {
   });
 
   let previousValue = 0;
-  return buckets.map((bucket) => {
+  const rawSeries = buckets.map((bucket) => {
     if (bucket.matches > 0) {
       previousValue = Math.round((bucket.wins / bucket.matches) * 100);
     }
@@ -556,6 +585,8 @@ const buildDailyWinRate = (matches, days) => {
       value: previousValue,
     };
   });
+
+  return smoothDailyValues(rawSeries, resolveTrendSmoothingWindow(days));
 };
 
 const buildHeroPerformance = (matches, heroesMetaMap, locale) => {

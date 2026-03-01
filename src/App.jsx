@@ -9,7 +9,7 @@ import CatalogListPanel from './components/CatalogListPanel.jsx';
 import { dailyWinRate, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
 import { heroCatalog } from './data/heroCatalog.js';
 import { itemCatalog } from './data/itemCatalog.js';
-import { summarizeDashboard, summarizeRecentMatches } from './utils/metrics.js';
+import { summarizeDashboard, summarizeOverviewExtremes, summarizeRecentMatches } from './utils/metrics.js';
 import { fetchPlayerWindowAnalytics, fetchRecentMatchDetail } from './services/opendota.js';
 import { createOpenDotaClient } from './services/opendotaClient.js';
 import { getCopy } from './i18n/copy.js';
@@ -25,8 +25,6 @@ const DEFAULT_TIME_WINDOW = 30;
 const TAB_IDS = {
   overview: 'overview',
   heroes: 'heroes',
-  trend: 'trend',
-  rankRole: 'rankRole',
   recentMatches: 'recentMatches',
   allHeroes: 'allHeroes',
   allItems: 'allItems',
@@ -195,6 +193,34 @@ const formatMatchDate = (startTime, lang) => {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date(startTime * 1000));
+};
+
+const formatIntegerDisplay = (value, lang, fallback) => {
+  const number = toFiniteOrNull(value);
+  if (number === null) {
+    return fallback;
+  }
+  const locale = lang === 'en' ? 'en-US' : 'zh-CN';
+  return new Intl.NumberFormat(locale).format(Math.round(number));
+};
+
+const formatMatchDateTime = (startTime, lang, fallback) => {
+  if (!startTime) {
+    return fallback;
+  }
+  const locale = lang === 'en' ? 'en-US' : 'zh-CN';
+  return new Intl.DateTimeFormat(locale, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(startTime * 1000));
+};
+
+const formatEntryValue = (value, fallback) => {
+  const number = toFiniteOrNull(value);
+  return number === null ? fallback : String(Math.round(number));
 };
 
 const getAvatarInitial = (value, fallback = '?') => {
@@ -749,17 +775,6 @@ function App() {
     }
   }, [filteredHeroes, heroRowManuallyCollapsed, selectedHeroRowId]);
 
-  const trendSummary = useMemo(() => {
-    if (!dashboard.dailyWinRate.length) {
-      return null;
-    }
-    const values = dashboard.dailyWinRate.map((point) => point.value);
-    return {
-      latest: dashboard.dailyWinRate[dashboard.dailyWinRate.length - 1].value,
-      peak: Math.max(...values),
-      bottom: Math.min(...values),
-    };
-  }, [dashboard.dailyWinRate]);
   const paginatedRecentMatches = useMemo(() => dashboard.windowMatches ?? [], [dashboard.windowMatches]);
   const recentMatchesTotalPages = Math.max(1, Math.ceil(paginatedRecentMatches.length / RECENT_MATCHES_PAGE_SIZE));
   const clampedRecentMatchesPage = Math.min(recentMatchesPage, recentMatchesTotalPages);
@@ -786,6 +801,13 @@ function App() {
     return grouped;
   }, [dashboard.windowMatches]);
   const recentMatchSummary = useMemo(() => summarizeRecentMatches(visibleRecentMatches), [visibleRecentMatches]);
+  const overviewExtremeMatches = useMemo(() => {
+    if ((dashboard.recentMatches ?? []).length > 0) {
+      return dashboard.recentMatches;
+    }
+    return dashboard.windowMatches ?? [];
+  }, [dashboard.recentMatches, dashboard.windowMatches]);
+  const overviewExtremes = useMemo(() => summarizeOverviewExtremes(overviewExtremeMatches), [overviewExtremeMatches]);
   const catalogLocale = lang === 'en' ? 'en' : 'zh';
   const heroCategories = useMemo(
     () => [
@@ -1070,7 +1092,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (activeTab === TAB_IDS.recentMatches || activeTab === TAB_IDS.heroes) {
+    if (activeTab === TAB_IDS.recentMatches || activeTab === TAB_IDS.heroes || activeTab === TAB_IDS.overview) {
       return;
     }
     if (selectedRecentMatchId) {
@@ -1084,8 +1106,6 @@ function App() {
   const tabItems = [
     { id: TAB_IDS.recentMatches, label: copy.tabs.recentMatches },
     { id: TAB_IDS.heroes, label: copy.tabs.heroes },
-    { id: TAB_IDS.trend, label: copy.tabs.trend },
-    { id: TAB_IDS.rankRole, label: copy.tabs.rankRole },
     { id: TAB_IDS.overview, label: copy.tabs.overview },
     { id: TAB_IDS.allHeroes, label: copy.tabs.allHeroes, rightGroup: true },
     { id: TAB_IDS.allItems, label: copy.tabs.allItems },
@@ -1120,6 +1140,15 @@ function App() {
   const mostPlayedHero = dashboard.metrics.mostPlayedHero;
   const bestHeroAvgGpm = Number.isFinite(bestHero.avgGpm) ? bestHero.avgGpm : copy.recentMatches.emptyValue;
   const worstHeroAvgGpm = Number.isFinite(worstHero.avgGpm) ? worstHero.avgGpm : copy.recentMatches.emptyValue;
+  const emptyValue = copy.recentMatches.emptyValue;
+  const highestDamageMatch = overviewExtremes.highestDamageMatch;
+  const mostKillsMatch = overviewExtremes.mostKillsMatch;
+  const mostDeathsMatch = overviewExtremes.mostDeathsMatch;
+  const overviewExtremeRows = [
+    { id: 'highestDamage', label: copy.cards.highestDamageMatch, match: highestDamageMatch },
+    { id: 'mostKills', label: copy.cards.mostKillsMatch, match: mostKillsMatch },
+    { id: 'mostDeaths', label: copy.cards.mostDeathsMatch, match: mostDeathsMatch },
+  ].filter((item) => item.match);
   const activeAccount = savedAccounts.find(
     (account) => account.accountId === queryAccountId && account.rawId === queryRawId && account.idType === queryIdType
   );
@@ -1379,6 +1408,75 @@ function App() {
               />
             </section>
 
+            <section className="panel">
+              <div className="panel-header">
+                <h2>{copy.overview.extremeMatchesTitle}</h2>
+                <span className="panel-tag">{copy.overview.tag(days)}</span>
+              </div>
+              {overviewExtremeRows.length > 0 ? (
+                <div className="table-wrap recent-table-wrap">
+                  <table className="recent-table">
+                    <thead>
+                      <tr>
+                        <th>{copy.overview.extremeMetricHeader}</th>
+                        <th>{copy.recentMatches.headers.date}</th>
+                        <th>{copy.recentMatches.headers.hero}</th>
+                        <th>{copy.recentMatches.headers.result}</th>
+                        <th>{copy.recentMatches.headers.kda}</th>
+                        <th>{copy.overview.extremeValueHeader}</th>
+                        <th>{copy.recentMatches.headers.matchId}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {overviewExtremeRows.map((item) => {
+                        const match = item.match;
+                        const resultLabel = copy.recentMatches.result?.[match.result] ?? emptyValue;
+                        const rowClassName = `recent-row ${selectedRecentMatchId === match.matchId ? 'is-selected' : ''}`;
+                        const kdaLine = `${formatEntryValue(match.kills, emptyValue)}/${formatEntryValue(match.deaths, emptyValue)}/${formatEntryValue(
+                          match.assists,
+                          emptyValue
+                        )}`;
+
+                        return (
+                          <tr
+                            key={`${item.id}-${match.matchId}`}
+                            className={rowClassName}
+                            tabIndex={0}
+                            onClick={() => handleOpenRecentMatchDetail(match)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                handleOpenRecentMatchDetail(match);
+                              }
+                            }}
+                          >
+                            <td>{item.label}</td>
+                            <td>{formatMatchDateTime(match.startTime, lang, emptyValue)}</td>
+                            <td>
+                              <div className="hero-name-cell">
+                                {match.heroAvatar ? (
+                                  <img src={match.heroAvatar} alt={match.hero} className="hero-avatar" loading="lazy" />
+                                ) : null}
+                                <span>{match.hero || emptyValue}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`result-pill ${match.result === 'win' ? 'is-win' : 'is-loss'}`}>{resultLabel}</span>
+                            </td>
+                            <td>{kdaLine}</td>
+                            <td>{formatIntegerDisplay(match.value, lang, emptyValue)}</td>
+                            <td>{match.matchId ?? emptyValue}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="empty-text">{copy.overview.extremeMatchesEmpty}</p>
+              )}
+            </section>
+
             <section className="two-cols">
               <WinRateTrend data={dashboard.dailyWinRate} days={days} copy={copy.trend} />
               <RankDistribution items={dashboard.rankDistribution} days={days} copy={copy.rank} />
@@ -1406,42 +1504,6 @@ function App() {
               lang={lang}
               copy={copy.table}
             />
-          </section>
-        ) : null}
-
-        {activeTab === TAB_IDS.trend ? (
-          <section id={`panel-${TAB_IDS.trend}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.trend}`} className="tab-content">
-            <section className="two-cols">
-              <WinRateTrend data={dashboard.dailyWinRate} days={days} copy={copy.trend} />
-              <section className="panel trend-summary-panel">
-                <div className="panel-header">
-                  <h2>{copy.trend.detailTitle}</h2>
-                  <span className="panel-tag">{copy.trend.detailTag}</span>
-                </div>
-                {trendSummary ? (
-                  <ul className="overview-insights">
-                    <li>{copy.trend.detailLatest(trendSummary.latest)}</li>
-                    <li>{copy.trend.detailPeak(trendSummary.peak)}</li>
-                    <li>{copy.trend.detailBottom(trendSummary.bottom)}</li>
-                  </ul>
-                ) : (
-                  <p className="empty-text">{copy.trend.detailEmpty}</p>
-                )}
-              </section>
-            </section>
-          </section>
-        ) : null}
-
-        {activeTab === TAB_IDS.rankRole ? (
-          <section
-            id={`panel-${TAB_IDS.rankRole}`}
-            role="tabpanel"
-            aria-labelledby={`tab-${TAB_IDS.rankRole}`}
-            className="tab-content"
-          >
-            <section>
-              <RankDistribution items={dashboard.rankDistribution} days={days} copy={copy.rank} />
-            </section>
           </section>
         ) : null}
 
