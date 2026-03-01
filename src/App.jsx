@@ -9,7 +9,7 @@ import CatalogListPanel from './components/CatalogListPanel.jsx';
 import { dailyWinRate, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
 import { heroCatalog } from './data/heroCatalog.js';
 import { itemCatalog } from './data/itemCatalog.js';
-import { summarizeDashboard, summarizeRecentMatches } from './utils/metrics.js';
+import { summarizeDashboard, summarizeOverviewExtremes, summarizeRecentMatches } from './utils/metrics.js';
 import { fetchPlayerWindowAnalytics, fetchRecentMatchDetail } from './services/opendota.js';
 import { createOpenDotaClient } from './services/opendotaClient.js';
 import { getCopy } from './i18n/copy.js';
@@ -19,13 +19,12 @@ const DEFAULT_STEAM32_ID = '898754153';
 const DEFAULT_SAMPLE_PLAYER_NAME = getCopy('zh').misc.samplePlayerName;
 const MAX_SAVED_ACCOUNTS = 5;
 const ACCOUNT_STORAGE_KEY = 'dotalens.accounts.v1';
-const RECENT_MATCH_OPTIONS = [10, 20, 30];
-const DEFAULT_RECENT_MATCH_LIMIT = 10;
+const RECENT_MATCHES_PAGE_SIZE = 30;
+const SUPPORTED_TIME_WINDOWS = [30, 365];
+const DEFAULT_TIME_WINDOW = 30;
 const TAB_IDS = {
   overview: 'overview',
   heroes: 'heroes',
-  trend: 'trend',
-  rankRole: 'rankRole',
   recentMatches: 'recentMatches',
   allHeroes: 'allHeroes',
   allItems: 'allItems',
@@ -126,6 +125,16 @@ const createMockDashboard = (copy, lang = 'zh') => {
     attribute: localizeMockAttribute(hero.attribute, lang),
   }));
   const metrics = summarizeDashboard(localizedHeroPerformance);
+  const achievementTotals = recentMatches.reduce(
+    (acc, match) => {
+      const rampageCount = toFiniteOrNull(match?.rampageCount);
+      const godlikeCount = toFiniteOrNull(match?.godlikeCount);
+      acc.rampage += rampageCount == null ? (match?.hasRampage ? 1 : 0) : Math.max(0, Math.trunc(rampageCount));
+      acc.godlike += godlikeCount == null ? (match?.hasGodlike ? 1 : 0) : Math.max(0, Math.trunc(godlikeCount));
+      return acc;
+    },
+    { rampage: 0, godlike: 0, rampageDataAvailable: true, godlikeDataAvailable: true }
+  );
   return {
     source: 'mock',
     playerName: copy.misc.samplePlayerName,
@@ -137,6 +146,7 @@ const createMockDashboard = (copy, lang = 'zh') => {
     recentMatches,
     windowMatches: recentMatches,
     metrics,
+    achievementTotals,
   };
 };
 
@@ -196,6 +206,34 @@ const formatMatchDate = (startTime, lang) => {
   }).format(new Date(startTime * 1000));
 };
 
+const formatIntegerDisplay = (value, lang, fallback) => {
+  const number = toFiniteOrNull(value);
+  if (number === null) {
+    return fallback;
+  }
+  const locale = lang === 'en' ? 'en-US' : 'zh-CN';
+  return new Intl.NumberFormat(locale).format(Math.round(number));
+};
+
+const formatMatchDateTime = (startTime, lang, fallback) => {
+  if (!startTime) {
+    return fallback;
+  }
+  const locale = lang === 'en' ? 'en-US' : 'zh-CN';
+  return new Intl.DateTimeFormat(locale, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(startTime * 1000));
+};
+
+const formatEntryValue = (value, fallback) => {
+  const number = toFiniteOrNull(value);
+  return number === null ? fallback : String(Math.round(number));
+};
+
 const getAvatarInitial = (value, fallback = '?') => {
   const text = String(value ?? '').trim();
   if (!text) {
@@ -208,6 +246,8 @@ const createMockRecentMatchDetail = (match, lang) => {
   const normalizedGpm = Number.isFinite(match.goldPerMin) ? match.goldPerMin : 0;
   const normalizedXpm = Number.isFinite(match.xpPerMin) ? match.xpPerMin : 0;
   const normalizedKda = Number.isFinite(match.kda) ? match.kda : 0;
+  const rampageCount = Number.isFinite(match.rampageCount) ? Math.max(0, Math.trunc(match.rampageCount)) : match.hasRampage ? 1 : 0;
+  const godlikeCount = Number.isFinite(match.godlikeCount) ? Math.max(0, Math.trunc(match.godlikeCount)) : match.hasGodlike ? 1 : 0;
   const killParticipation = Math.min(95, Math.max(18, normalizedKda * 12));
 
   const isZh = lang !== 'en';
@@ -287,6 +327,10 @@ const createMockRecentMatchDetail = (match, lang) => {
       xpPerMin: Number.isFinite(match.xpPerMin) ? match.xpPerMin : null,
       killParticipation: Number(killParticipation.toFixed(1)),
       impactScore,
+      rampageCount,
+      godlikeCount,
+      hasRampage: rampageCount > 0,
+      hasGodlike: godlikeCount > 0,
     },
     core: {
       heroDamage: Math.round(normalizedGpm * 40 + normalizedXpm * 5),
@@ -423,6 +467,11 @@ const sanitizePersistedAccounts = (value) => {
   return accounts.length ? accounts : null;
 };
 
+const sanitizePersistedDays = (value) => {
+  const parsed = Number(value);
+  return SUPPORTED_TIME_WINDOWS.includes(parsed) ? parsed : null;
+};
+
 const createDefaultSession = () => {
   const defaultAccount = createDefaultAccount();
   return {
@@ -432,6 +481,7 @@ const createDefaultSession = () => {
     queryAccountId: defaultAccount.accountId,
     queryRawId: defaultAccount.rawId,
     queryIdType: defaultAccount.idType,
+    days: DEFAULT_TIME_WINDOW,
   };
 };
 
@@ -450,6 +500,7 @@ const loadSessionFromStorage = () => {
     const parsed = JSON.parse(raw);
     const savedAccounts = sanitizePersistedAccounts(parsed?.savedAccounts) ?? fallback.savedAccounts;
     const persistedActive = sanitizePersistedAccount(parsed?.activeAccount);
+    const days = sanitizePersistedDays(parsed?.days) ?? fallback.days;
     const activeAccount =
       persistedActive && savedAccounts.some((item) => isSameAccount(item, persistedActive))
         ? persistedActive
@@ -462,6 +513,7 @@ const loadSessionFromStorage = () => {
       queryAccountId: activeAccount.accountId,
       queryRawId: activeAccount.rawId,
       queryIdType: activeAccount.idType,
+      days,
     };
   } catch {
     return fallback;
@@ -481,9 +533,9 @@ function App() {
   const [queryRawId, setQueryRawId] = useState(sessionSeed.queryRawId);
   const [queryIdType, setQueryIdType] = useState(sessionSeed.queryIdType);
   const [reloadKey, setReloadKey] = useState(0);
-  const [days, setDays] = useState(14);
+  const [days, setDays] = useState(sessionSeed.days);
   const [activeTab, setActiveTab] = useState(TAB_IDS.recentMatches);
-  const [recentMatchesLimit, setRecentMatchesLimit] = useState(DEFAULT_RECENT_MATCH_LIMIT);
+  const [recentMatchesPage, setRecentMatchesPage] = useState(1);
   const [sortKey, setSortKey] = useState('impact');
   const [sortDir, setSortDir] = useState('desc');
   const [attributeFilter, setAttributeFilter] = useState('all');
@@ -532,12 +584,13 @@ function App() {
             rawId: queryRawId,
             accountId: queryAccountId,
           },
+          days,
         })
       );
     } catch {
       // Ignore localStorage write failures (for example, privacy mode restrictions).
     }
-  }, [savedAccounts, queryAccountId, queryRawId, queryIdType]);
+  }, [savedAccounts, queryAccountId, queryRawId, queryIdType, days]);
 
   useEffect(() => {
     if (dashboard.source === 'mock') {
@@ -621,6 +674,7 @@ function App() {
     setRecentMatchDetailLoading(false);
     setSelectedHeroRowId(null);
     setHeroRowManuallyCollapsed(false);
+    setRecentMatchesPage(1);
   }, [queryAccountId, days, reloadKey]);
 
   useEffect(() => {
@@ -738,21 +792,18 @@ function App() {
     }
   }, [filteredHeroes, heroRowManuallyCollapsed, selectedHeroRowId]);
 
-  const trendSummary = useMemo(() => {
-    if (!dashboard.dailyWinRate.length) {
-      return null;
+  const paginatedRecentMatches = useMemo(() => dashboard.windowMatches ?? [], [dashboard.windowMatches]);
+  const recentMatchesTotalPages = Math.max(1, Math.ceil(paginatedRecentMatches.length / RECENT_MATCHES_PAGE_SIZE));
+  const clampedRecentMatchesPage = Math.min(recentMatchesPage, recentMatchesTotalPages);
+  const visibleRecentMatches = useMemo(() => {
+    const start = (clampedRecentMatchesPage - 1) * RECENT_MATCHES_PAGE_SIZE;
+    return paginatedRecentMatches.slice(start, start + RECENT_MATCHES_PAGE_SIZE);
+  }, [clampedRecentMatchesPage, paginatedRecentMatches]);
+  useEffect(() => {
+    if (recentMatchesPage !== clampedRecentMatchesPage) {
+      setRecentMatchesPage(clampedRecentMatchesPage);
     }
-    const values = dashboard.dailyWinRate.map((point) => point.value);
-    return {
-      latest: dashboard.dailyWinRate[dashboard.dailyWinRate.length - 1].value,
-      peak: Math.max(...values),
-      bottom: Math.min(...values),
-    };
-  }, [dashboard.dailyWinRate]);
-  const visibleRecentMatches = useMemo(
-    () => (dashboard.recentMatches ?? []).slice(0, recentMatchesLimit),
-    [dashboard.recentMatches, recentMatchesLimit]
-  );
+  }, [recentMatchesPage, clampedRecentMatchesPage]);
   const heroMatchesMap = useMemo(() => {
     const grouped = new Map();
     (dashboard.windowMatches ?? []).forEach((match) => {
@@ -767,6 +818,38 @@ function App() {
     return grouped;
   }, [dashboard.windowMatches]);
   const recentMatchSummary = useMemo(() => summarizeRecentMatches(visibleRecentMatches), [visibleRecentMatches]);
+  const overviewExtremeMatches = useMemo(() => {
+    if ((dashboard.recentMatches ?? []).length > 0) {
+      return dashboard.recentMatches;
+    }
+    return dashboard.windowMatches ?? [];
+  }, [dashboard.recentMatches, dashboard.windowMatches]);
+  const overviewExtremes = useMemo(() => summarizeOverviewExtremes(overviewExtremeMatches), [overviewExtremeMatches]);
+  const overviewAchievementTotals = useMemo(() => {
+    if (dashboard.achievementTotals) {
+      return {
+        rampage: Math.max(0, Math.trunc(toFiniteOrNull(dashboard.achievementTotals.rampage) ?? 0)),
+        godlike: Math.max(0, Math.trunc(toFiniteOrNull(dashboard.achievementTotals.godlike) ?? 0)),
+        rampageDataMatches: dashboard.achievementTotals.rampageDataAvailable ? 1 : 0,
+        godlikeDataMatches: dashboard.achievementTotals.godlikeDataAvailable ? 1 : 0,
+      };
+    }
+
+    return (dashboard.windowMatches ?? []).reduce(
+      (acc, match) => {
+        const rampageCount = toFiniteOrNull(match?.rampageCount);
+        const godlikeCount = toFiniteOrNull(match?.godlikeCount);
+        const rampageDataAvailable = match?.rampageDataAvailable === true || (rampageCount != null && rampageCount > 0);
+        const godlikeDataAvailable = match?.godlikeDataAvailable === true || (godlikeCount != null && godlikeCount > 0);
+        acc.rampage += rampageCount == null ? (match?.hasRampage ? 1 : 0) : Math.max(0, Math.trunc(rampageCount));
+        acc.godlike += godlikeCount == null ? (match?.hasGodlike ? 1 : 0) : Math.max(0, Math.trunc(godlikeCount));
+        acc.rampageDataMatches += rampageDataAvailable ? 1 : 0;
+        acc.godlikeDataMatches += godlikeDataAvailable ? 1 : 0;
+        return acc;
+      },
+      { rampage: 0, godlike: 0, rampageDataMatches: 0, godlikeDataMatches: 0 }
+    );
+  }, [dashboard.achievementTotals, dashboard.windowMatches]);
   const catalogLocale = lang === 'en' ? 'en' : 'zh';
   const heroCategories = useMemo(
     () => [
@@ -1051,7 +1134,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (activeTab === TAB_IDS.recentMatches || activeTab === TAB_IDS.heroes) {
+    if (activeTab === TAB_IDS.recentMatches || activeTab === TAB_IDS.heroes || activeTab === TAB_IDS.overview) {
       return;
     }
     if (selectedRecentMatchId) {
@@ -1065,8 +1148,6 @@ function App() {
   const tabItems = [
     { id: TAB_IDS.recentMatches, label: copy.tabs.recentMatches },
     { id: TAB_IDS.heroes, label: copy.tabs.heroes },
-    { id: TAB_IDS.trend, label: copy.tabs.trend },
-    { id: TAB_IDS.rankRole, label: copy.tabs.rankRole },
     { id: TAB_IDS.overview, label: copy.tabs.overview },
     { id: TAB_IDS.allHeroes, label: copy.tabs.allHeroes, rightGroup: true },
     { id: TAB_IDS.allItems, label: copy.tabs.allItems },
@@ -1101,6 +1182,15 @@ function App() {
   const mostPlayedHero = dashboard.metrics.mostPlayedHero;
   const bestHeroAvgGpm = Number.isFinite(bestHero.avgGpm) ? bestHero.avgGpm : copy.recentMatches.emptyValue;
   const worstHeroAvgGpm = Number.isFinite(worstHero.avgGpm) ? worstHero.avgGpm : copy.recentMatches.emptyValue;
+  const emptyValue = copy.recentMatches.emptyValue;
+  const highestDamageMatch = overviewExtremes.highestDamageMatch;
+  const mostKillsMatch = overviewExtremes.mostKillsMatch;
+  const mostDeathsMatch = overviewExtremes.mostDeathsMatch;
+  const overviewExtremeRows = [
+    { id: 'highestDamage', label: copy.cards.highestDamageMatch, match: highestDamageMatch },
+    { id: 'mostKills', label: copy.cards.mostKillsMatch, match: mostKillsMatch },
+    { id: 'mostDeaths', label: copy.cards.mostDeathsMatch, match: mostDeathsMatch },
+  ].filter((item) => item.match);
   const activeAccount = savedAccounts.find(
     (account) => account.accountId === queryAccountId && account.rawId === queryRawId && account.idType === queryIdType
   );
@@ -1261,17 +1351,6 @@ function App() {
                 })}
               </div>
               <div className="range-switch" role="group" aria-label={copy.query.rangeAriaLabel}>
-                <button type="button" className={days === 7 ? 'is-active' : ''} onClick={() => setDays(7)} disabled={loading}>
-                  {copy.query.day7}
-                </button>
-                <button
-                  type="button"
-                  className={days === 14 ? 'is-active' : ''}
-                  onClick={() => setDays(14)}
-                  disabled={loading}
-                >
-                  {copy.query.day14}
-                </button>
                 <button
                   type="button"
                   className={days === 30 ? 'is-active' : ''}
@@ -1279,6 +1358,14 @@ function App() {
                   disabled={loading}
                 >
                   {copy.query.day30}
+                </button>
+                <button
+                  type="button"
+                  className={days === 365 ? 'is-active' : ''}
+                  onClick={() => setDays(365)}
+                  disabled={loading}
+                >
+                  {copy.query.day365}
                 </button>
               </div>
             </form>
@@ -1361,6 +1448,95 @@ function App() {
                 })}
                 accent="teal"
               />
+              <StatCard
+                label={copy.cards.rampageCount}
+                value={
+                  overviewAchievementTotals.rampageDataMatches > 0
+                    ? overviewAchievementTotals.rampage
+                    : copy.recentMatches.emptyValue
+                }
+                subtext={copy.cards.rampageCountSubtext(days)}
+                accent="red"
+              />
+              <StatCard
+                label={copy.cards.godlikeCount}
+                value={
+                  overviewAchievementTotals.godlikeDataMatches > 0
+                    ? overviewAchievementTotals.godlike
+                    : copy.recentMatches.emptyValue
+                }
+                subtext={copy.cards.godlikeCountSubtext(days)}
+                accent="gold"
+              />
+            </section>
+
+            <section className="panel">
+              <div className="panel-header">
+                <h2>{copy.overview.extremeMatchesTitle}</h2>
+                <span className="panel-tag">{copy.overview.tag(days)}</span>
+              </div>
+              {overviewExtremeRows.length > 0 ? (
+                <div className="table-wrap recent-table-wrap">
+                  <table className="recent-table">
+                    <thead>
+                      <tr>
+                        <th>{copy.overview.extremeMetricHeader}</th>
+                        <th>{copy.recentMatches.headers.date}</th>
+                        <th>{copy.recentMatches.headers.hero}</th>
+                        <th>{copy.recentMatches.headers.result}</th>
+                        <th>{copy.recentMatches.headers.kda}</th>
+                        <th>{copy.overview.extremeValueHeader}</th>
+                        <th>{copy.recentMatches.headers.matchId}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {overviewExtremeRows.map((item) => {
+                        const match = item.match;
+                        const resultLabel = copy.recentMatches.result?.[match.result] ?? emptyValue;
+                        const rowClassName = `recent-row ${selectedRecentMatchId === match.matchId ? 'is-selected' : ''}`;
+                        const kdaLine = `${formatEntryValue(match.kills, emptyValue)}/${formatEntryValue(match.deaths, emptyValue)}/${formatEntryValue(
+                          match.assists,
+                          emptyValue
+                        )}`;
+
+                        return (
+                          <tr
+                            key={`${item.id}-${match.matchId}`}
+                            className={rowClassName}
+                            tabIndex={0}
+                            onClick={() => handleOpenRecentMatchDetail(match)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                handleOpenRecentMatchDetail(match);
+                              }
+                            }}
+                          >
+                            <td>{item.label}</td>
+                            <td>{formatMatchDateTime(match.startTime, lang, emptyValue)}</td>
+                            <td>
+                              <div className="hero-name-cell">
+                                {match.heroAvatar ? (
+                                  <img src={match.heroAvatar} alt={match.hero} className="hero-avatar" loading="lazy" />
+                                ) : null}
+                                <span>{match.hero || emptyValue}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`result-pill ${match.result === 'win' ? 'is-win' : 'is-loss'}`}>{resultLabel}</span>
+                            </td>
+                            <td>{kdaLine}</td>
+                            <td>{formatIntegerDisplay(match.value, lang, emptyValue)}</td>
+                            <td>{match.matchId ?? emptyValue}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="empty-text">{copy.overview.extremeMatchesEmpty}</p>
+              )}
             </section>
 
             <section className="two-cols">
@@ -1393,42 +1569,6 @@ function App() {
           </section>
         ) : null}
 
-        {activeTab === TAB_IDS.trend ? (
-          <section id={`panel-${TAB_IDS.trend}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.trend}`} className="tab-content">
-            <section className="two-cols">
-              <WinRateTrend data={dashboard.dailyWinRate} days={days} copy={copy.trend} />
-              <section className="panel trend-summary-panel">
-                <div className="panel-header">
-                  <h2>{copy.trend.detailTitle}</h2>
-                  <span className="panel-tag">{copy.trend.detailTag}</span>
-                </div>
-                {trendSummary ? (
-                  <ul className="overview-insights">
-                    <li>{copy.trend.detailLatest(trendSummary.latest)}</li>
-                    <li>{copy.trend.detailPeak(trendSummary.peak)}</li>
-                    <li>{copy.trend.detailBottom(trendSummary.bottom)}</li>
-                  </ul>
-                ) : (
-                  <p className="empty-text">{copy.trend.detailEmpty}</p>
-                )}
-              </section>
-            </section>
-          </section>
-        ) : null}
-
-        {activeTab === TAB_IDS.rankRole ? (
-          <section
-            id={`panel-${TAB_IDS.rankRole}`}
-            role="tabpanel"
-            aria-labelledby={`tab-${TAB_IDS.rankRole}`}
-            className="tab-content"
-          >
-            <section>
-              <RankDistribution items={dashboard.rankDistribution} days={days} copy={copy.rank} />
-            </section>
-          </section>
-        ) : null}
-
         {activeTab === TAB_IDS.recentMatches ? (
           <section
             id={`panel-${TAB_IDS.recentMatches}`}
@@ -1441,9 +1581,11 @@ function App() {
               summary={recentMatchSummary}
               copy={copy.recentMatches}
               lang={lang}
-              limit={recentMatchesLimit}
-              options={RECENT_MATCH_OPTIONS}
-              onLimitChange={setRecentMatchesLimit}
+              page={clampedRecentMatchesPage}
+              pageSize={RECENT_MATCHES_PAGE_SIZE}
+              totalCount={paginatedRecentMatches.length}
+              totalPages={recentMatchesTotalPages}
+              onPageChange={setRecentMatchesPage}
               selectedMatchId={selectedRecentMatchId}
               onSelectMatch={handleOpenRecentMatchDetail}
             />

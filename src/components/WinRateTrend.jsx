@@ -6,6 +6,40 @@ const fallbackCopy = {
   ariaLabel: (days) => `${days}天胜率走势`,
 };
 
+const resolveLabelCount = (pointCount) => {
+  if (pointCount <= 14) {
+    return pointCount;
+  }
+  if (pointCount <= 45) {
+    return 10;
+  }
+  if (pointCount <= 120) {
+    return 9;
+  }
+  return 12;
+};
+
+const pickXAxisLabels = (data) => {
+  const pointCount = data.length;
+  const labelCount = resolveLabelCount(pointCount);
+  if (labelCount >= pointCount) {
+    return data.map((point, index) => ({ ...point, index }));
+  }
+
+  const step = (pointCount - 1) / (labelCount - 1);
+  const indexes = new Set([0, pointCount - 1]);
+  for (let i = 1; i < labelCount - 1; i += 1) {
+    indexes.add(Math.round(i * step));
+  }
+
+  return Array.from(indexes)
+    .sort((a, b) => a - b)
+    .map((index) => ({
+      day: data[index].day,
+      index,
+    }));
+};
+
 function WinRateTrend({ data, days = 14, copy = fallbackCopy }) {
   if (!data.length) {
     return (
@@ -54,6 +88,7 @@ function WinRateTrend({ data, days = 14, copy = fallbackCopy }) {
     .join(' ');
 
   const last = data[data.length - 1];
+  const xAxisLabels = pickXAxisLabels(data);
   const xLabelPaddingLeft = `${(paddingLeft / width) * 100}%`;
   const xLabelPaddingRight = `${(paddingRight / width) * 100}%`;
 
@@ -92,8 +127,8 @@ function WinRateTrend({ data, days = 14, copy = fallbackCopy }) {
         />
       </svg>
       <div className="trend-labels" style={{ paddingInline: `${xLabelPaddingLeft} ${xLabelPaddingRight}` }}>
-        {data.map((point) => (
-          <span key={point.day}>{point.day}</span>
+        {xAxisLabels.map((point) => (
+          <span key={`${point.day}-${point.index}`}>{point.day}</span>
         ))}
       </div>
     </section>

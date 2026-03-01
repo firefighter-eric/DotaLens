@@ -116,6 +116,10 @@ export const recentMatches = [
     durationSec: 2385,
     laneRole: 'Carry',
     rank: 'Ancient',
+    rampageCount: 1,
+    godlikeCount: 1,
+    hasRampage: true,
+    hasGodlike: true,
   },
   {
     matchId: 8123399734,
@@ -134,6 +138,10 @@ export const recentMatches = [
     durationSec: 2520,
     laneRole: 'Mid',
     rank: 'Legend',
+    rampageCount: 0,
+    godlikeCount: 1,
+    hasRampage: false,
+    hasGodlike: true,
   },
   {
     matchId: 8123399051,

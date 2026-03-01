@@ -1094,9 +1094,13 @@ tbody tr:hover {
 }
 
 .hero-match-table-wrap {
+  --hero-match-visible-rows: 5;
+  --hero-match-header-height: 44px;
+  --hero-match-row-height: 46px;
   border: 1px solid rgba(16, 163, 127, 0.15);
   border-radius: 10px;
   overflow: auto;
+  max-height: calc(var(--hero-match-header-height) + (var(--hero-match-visible-rows) * var(--hero-match-row-height)));
   background: #ffffff;
 }
 
@@ -1144,10 +1148,18 @@ tbody tr:hover {
 
 .recent-limit-switch {
   margin-top: 0;
+  align-items: center;
 }
 
 .recent-limit-switch button {
-  min-width: 44px;
+  min-width: 56px;
+}
+
+.recent-page-indicator {
+  font-size: 0.82rem;
+  color: #475569;
+  padding: 0 6px;
+  white-space: nowrap;
 }
 
 .recent-summary-item {
@@ -1206,10 +1218,16 @@ tbody tr:hover {
   background: rgba(225, 240, 228, 0.84);
 }
 
-.recent-time-tag.is-thisWeek {
+.recent-time-tag.is-within7Days {
   color: #6b625a;
   border-color: rgba(185, 165, 142, 0.38);
   background: rgba(246, 234, 220, 0.82);
+}
+
+.recent-time-tag.is-within30Days {
+  color: #5f677b;
+  border-color: rgba(146, 157, 185, 0.38);
+  background: rgba(224, 231, 247, 0.82);
 }
 
 .recent-row {
@@ -1304,6 +1322,30 @@ tbody tr:hover {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.detail-achievement-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.detail-achievement-tag.is-rampage {
+  color: #92400e;
+  border-color: rgba(217, 119, 6, 0.38);
+  background: rgba(251, 191, 36, 0.16);
+}
+
+.detail-achievement-tag.is-godlike {
+  color: #5b21b6;
+  border-color: rgba(124, 58, 237, 0.34);
+  background: rgba(196, 181, 253, 0.22);
 }
 
 .match-detail-close {
