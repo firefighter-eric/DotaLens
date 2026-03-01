@@ -500,12 +500,11 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
     .sort((a, b) => b.matches - a.matches);
 };
 
-const buildRecentMatches = (matches, heroesMetaMap, locale, limit = RECENT_MATCH_FETCH_LIMIT) =>
+const buildMatchRows = (matches, heroesMetaMap, locale) =>
   matches
     .filter((match) => match.start_time && match.match_id)
     .slice()
     .sort((a, b) => b.start_time - a.start_time)
-    .slice(0, limit)
     .map((match) => {
       const heroMeta = heroesMetaMap.get(match.hero_id);
       const kills = match.kills ?? 0;
@@ -526,11 +525,15 @@ const buildRecentMatches = (matches, heroesMetaMap, locale, limit = RECENT_MATCH
         kda: Number(((kills + assists) / Math.max(1, deaths)).toFixed(2)),
         goldPerMin: toFiniteOrNull(match.gold_per_min),
         xpPerMin: toFiniteOrNull(match.xp_per_min),
+        heroDamage: toFiniteOrNull(match.hero_damage),
         durationSec: match.duration ?? 0,
         laneRole: resolveRole(match, locale),
         rank: resolveRank(match, locale),
       };
     });
+
+const buildRecentMatches = (matches, heroesMetaMap, locale, limit = RECENT_MATCH_FETCH_LIMIT) =>
+  buildMatchRows(matches, heroesMetaMap, locale).slice(0, limit);
 
 const buildRankDistribution = (matches, locale) => {
   const tierCounter = new Map();
@@ -581,6 +584,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
 
   const recentMatches = buildRecentMatches(latestMatches, heroesMetaMap, locale);
   const validMatches = matches.filter((item) => item.start_time);
+  const windowMatches = buildMatchRows(validMatches, heroesMetaMap, locale);
   if (validMatches.length === 0) {
     return {
       playerName: player?.profile?.personaname ?? locale.playerFallback(accountId),
@@ -588,6 +592,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
       dailyWinRate: [],
       rankDistribution: [],
       recentMatches,
+      windowMatches: [],
       metrics: summarizeDashboard([]),
       totalMatches: 0,
       latestMatchStartTime: recentMatches[0]?.startTime ?? null,
@@ -604,6 +609,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     dailyWinRate,
     rankDistribution,
     recentMatches,
+    windowMatches,
     metrics: summarizeDashboard(heroPerformance),
     totalMatches: validMatches.length,
     latestMatchStartTime: validMatches[0]?.start_time ?? null,

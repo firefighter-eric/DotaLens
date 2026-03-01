@@ -5,9 +5,14 @@
 ## 项目概览
 
 - 技术栈：React 18 + Vite 5（纯前端项目，ESM）。
-- 核心数据源：OpenDota API（`src/services/opendota.js`）。
-- 当前页面能力：玩家 ID 查询、14/30 天窗口切换、胜率趋势、英雄表现、段位分布、中英文切换。
-- 回退策略：API 不可用时仍可展示 mock 数据（`src/data/mockDotaData.js`）。
+- 核心数据源：OpenDota API（`src/services/opendotaClient.js` + `src/services/opendota.js`）。
+- 当前页面架构：Tab 化工作台（最近对局、英雄池、趋势、段位、总览、全英雄、全物品）。
+- 查询能力：支持 Steam32 与 OpenDota ID，7/14/30 天窗口切换。
+- 关键交互：
+  - 账号弹窗登录/切换（最多 5 个账号，本地持久化）；
+  - 最近对局点击后打开详情抽屉（含全场玩家面板）；
+  - 英雄池支持排序/筛选/最少场次/CSV 导出与行展开。
+- 回退策略：默认可展示 mock 数据（`src/data/mockDotaData.js`），网络失败时保留可浏览状态。
 
 ## 常用命令
 
@@ -17,45 +22,55 @@ npm run dev
 npm run lint
 npm run build
 npm run preview
+npm run sync:heroes
+npm run sync:items
 ```
 
 要求：提交前至少通过 `npm run lint` 与 `npm run build`。
 
 ## 目录职责
 
-- `src/App.jsx`：页面编排、查询状态、语言切换、错误状态与加载状态。
-- `src/services/opendota.js`：API 请求、原始数据聚合与本地化错误映射。
-- `src/utils/metrics.js`：纯计算函数（百分比、汇总指标等）。
-- `src/components/`：展示组件（尽量保持无副作用）。
-- `src/i18n/copy.js`：中英文文案与格式化函数。
-- `src/styles.css`：全局样式与响应式布局。
-- `docs/PROJECT_PLAN.md`：需求范围与里程碑说明。
+- `src/App.jsx`：全局状态与页面编排（查询、账号、tab、筛选、抽屉）。
+- `src/services/opendotaClient.js`：OpenDota 请求封装、HTTP 错误映射、参数兜底。
+- `src/services/opendota.js`：业务聚合（heroPerformance、dailyWinRate、rankDistribution、recentMatches、detail ViewModel）。
+- `src/utils/metrics.js`：纯计算函数（百分比、仪表盘与最近对局汇总）。
+- `src/components/`：展示组件（无请求副作用）。
+- `src/i18n/copy.js`：`zh/en` 文案与格式化函数。
+- `src/data/heroCatalog.js` / `src/data/itemCatalog.js`：本地英雄/物品目录数据。
+- `scripts/syncHeroes.mjs` / `scripts/syncItems.mjs`：目录与素材同步脚本。
+- `docs/PROJECT_PLAN.md`：范围与里程碑。
+- `docs/FRONTEND_BACKEND_BOUNDARY.md`：分层与调用链边界。
 
 ## 开发约束
 
 - 文案改动必须同步维护 `zh` 与 `en` 两套文案。
-- 新增统计逻辑优先放在 `utils` 或 `services`，避免把计算堆在 JSX 内。
-- API 相关改动要保留：
+- 新增统计逻辑优先放在 `utils` 或 `services`，避免把计算堆在 JSX。
+- API 相关改动必须保留：
   - `AbortController` 取消请求能力；
   - 404/429/其他 HTTP 状态的清晰错误提示；
-  - 无数据场景下的空态展示。
-- 组件保持小而明确，避免在展示组件中发请求。
+  - 无数据场景下的空态返回（而非抛异常导致页面不可用）。
+- 不在展示组件内直接发请求。
 - 保持移动端可用（重点检查 `<=980px`、`<=640px` 断点）。
 
 ## 推荐工作流
 
 1. 先定位改动层级（`services` 取数、`utils` 计算、`components` 展示、`copy` 文案）。
-2. 最小化改动范围，优先复用现有类型/字段结构（如 `heroPerformance`、`dailyWinRate`、`rankDistribution`）。
-3. 若新增筛选/状态，优先放在 `App.jsx`，并通过 props 下发给子组件。
-4. 完成后运行 `npm run lint` 和 `npm run build`，再做手动回归。
+2. 最小化改动范围，优先复用既有 ViewModel 字段结构。
+3. 新增筛选/状态优先放在 `App.jsx`，通过 props 下发。
+4. 涉及目录数据时，优先复用 `heroCatalog` / `itemCatalog` 与同步脚本。
+5. 完成后运行 `npm run lint` 和 `npm run build`，再做手动回归。
 
 ## 手动回归清单
 
-- 能用 Steam32 与 OpenDota ID 发起查询。
+- Steam32 / OpenDota ID 均可发起查询。
 - 非数字输入可得到正确报错。
-- 14/30 天切换后图表和统计同步变化。
-- 中英文切换后，状态文案和错误文案都正确。
-- 表格、趋势图、段位分布在窄屏下不破版。
+- 账号弹窗内可新增、切换、移除账号；刷新后账号信息可恢复。
+- 7/14/30 天切换后，总览/趋势/英雄池/段位/最近对局同步变化。
+- 最近对局可切换 10/20/30，点击行可打开并关闭详情抽屉。
+- 英雄池筛选、排序、最少场次与 CSV 导出正常。
+- 中英文切换后，状态文案、错误文案、抽屉文案均正确。
+- 全英雄与全物品目录可正常分类浏览。
+- `<=980px`、`<=640px` 下表格与抽屉不破版。
 
 ## 非目标（除非明确提出）
 

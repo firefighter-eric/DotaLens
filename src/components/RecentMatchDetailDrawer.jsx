@@ -18,7 +18,6 @@ const fallbackDetailCopy = {
     duration: '时长',
     gameMode: '模式',
     queueType: '队列',
-    laneRole: '分路',
     rank: '段位',
     kda: 'K/D/A (KDA)',
     gpmXpm: 'GPM / XPM',
@@ -49,7 +48,7 @@ const fallbackDetailCopy = {
     playerItems: '装备',
     playerDamage: '英雄伤害 / 治疗',
     playerDamageShare: '伤害占比',
-    playerRoleRank: '分路 / 段位',
+    playerRank: '段位',
     currentPlayer: '当前玩家',
   },
   result: {
@@ -239,13 +238,13 @@ function RecentMatchDetailDrawer({
                         <div className="match-player-scoreboard is-expanded">
                           <div className="match-player-row is-head">
                             <span className="col-player">{effectiveCopy.labels.player}</span>
-                            <span className="is-metric">{effectiveCopy.labels.playerKda}</span>
-                            <span className="is-metric">{effectiveCopy.labels.playerGpmXpm}</span>
+                            <span className="is-metric col-kda">{effectiveCopy.labels.playerKda}</span>
+                            <span className="is-metric col-gpm-xpm">{effectiveCopy.labels.playerGpmXpm}</span>
                             <span className="is-metric">{effectiveCopy.labels.playerNetWorth}</span>
                             <span className="is-metric">{effectiveCopy.labels.playerItems}</span>
                             <span className="is-metric">{effectiveCopy.labels.playerDamage}</span>
                             <span className="is-metric">{effectiveCopy.labels.playerLastHitsDenies}</span>
-                            <span className="is-metric">{effectiveCopy.labels.playerRoleRank}</span>
+                            <span className="is-metric">{effectiveCopy.labels.playerRank}</span>
                           </div>
 
                           {team.players.map((player) => (
@@ -275,8 +274,8 @@ function RecentMatchDetailDrawer({
                                 </div>
                               </div>
 
-                              <span className="is-metric tabular-number">{formatPlayerKda(player, effectiveCopy)}</span>
-                              <span className="is-metric tabular-number">
+                              <span className="is-metric tabular-number col-kda">{formatPlayerKda(player, effectiveCopy)}</span>
+                              <span className="is-metric tabular-number col-gpm-xpm">
                                 {Number.isFinite(player.goldPerMin) ? player.goldPerMin : effectiveCopy.emptyValue} /{' '}
                                 {Number.isFinite(player.xpPerMin) ? player.xpPerMin : effectiveCopy.emptyValue}
                               </span>
@@ -309,9 +308,7 @@ function RecentMatchDetailDrawer({
                               <span className="is-metric tabular-number">
                                 {formatNumber(player.lastHits, effectiveCopy.emptyValue)} / {formatNumber(player.denies, effectiveCopy.emptyValue)}
                               </span>
-                              <span className="is-metric">
-                                {player.laneRole || effectiveCopy.emptyValue} / {player.rank || effectiveCopy.emptyValue}
-                              </span>
+                              <span className="is-metric">{player.rank || effectiveCopy.emptyValue}</span>
                             </div>
                           ))}
                         </div>
@@ -343,10 +340,6 @@ function RecentMatchDetailDrawer({
                 <div>
                   <span>{effectiveCopy.labels.queueType}</span>
                   <strong>{overview.queueType || effectiveCopy.emptyValue}</strong>
-                </div>
-                <div>
-                  <span>{effectiveCopy.labels.laneRole}</span>
-                  <strong>{overview.laneRole || effectiveCopy.emptyValue}</strong>
                 </div>
                 <div>
                   <span>{effectiveCopy.labels.rank}</span>

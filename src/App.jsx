@@ -3,14 +3,13 @@ import StatCard from './components/StatCard.jsx';
 import WinRateTrend from './components/WinRateTrend.jsx';
 import HeroPerformanceTable from './components/HeroPerformanceTable.jsx';
 import RankDistribution from './components/RankDistribution.jsx';
-import RoleDistribution from './components/RoleDistribution.jsx';
 import RecentMatchesPanel from './components/RecentMatchesPanel.jsx';
 import RecentMatchDetailDrawer from './components/RecentMatchDetailDrawer.jsx';
 import CatalogListPanel from './components/CatalogListPanel.jsx';
 import { dailyWinRate, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
 import { heroCatalog } from './data/heroCatalog.js';
 import { itemCatalog } from './data/itemCatalog.js';
-import { buildRoleDistribution, summarizeDashboard, summarizeRecentMatches } from './utils/metrics.js';
+import { summarizeDashboard, summarizeRecentMatches } from './utils/metrics.js';
 import { fetchPlayerWindowAnalytics, fetchRecentMatchDetail } from './services/opendota.js';
 import { createOpenDotaClient } from './services/opendotaClient.js';
 import { getCopy } from './i18n/copy.js';
@@ -135,6 +134,7 @@ const createMockDashboard = (copy, lang = 'zh') => {
     dailyWinRate,
     rankDistribution,
     recentMatches,
+    windowMatches: recentMatches,
     metrics,
   };
 };
@@ -475,8 +475,9 @@ function App() {
   const [sortKey, setSortKey] = useState('impact');
   const [sortDir, setSortDir] = useState('desc');
   const [attributeFilter, setAttributeFilter] = useState('all');
-  const [roleFilter, setRoleFilter] = useState('all');
   const [minMatches, setMinMatches] = useState(0);
+  const [selectedHeroRowId, setSelectedHeroRowId] = useState(null);
+  const [heroRowManuallyCollapsed, setHeroRowManuallyCollapsed] = useState(false);
   const [dashboard, setDashboard] = useState(() => createMockDashboard(getCopy('zh'), 'zh'));
   const [heroMetaById, setHeroMetaById] = useState(() => new Map());
   const [loading, setLoading] = useState(false);
@@ -485,9 +486,19 @@ function App() {
   const [recentMatchDetail, setRecentMatchDetail] = useState(null);
   const [recentMatchDetailLoading, setRecentMatchDetailLoading] = useState(false);
   const [recentMatchDetailError, setRecentMatchDetailError] = useState('');
+  const selectableMatches = useMemo(() => {
+    const merged = [...(dashboard.recentMatches ?? []), ...(dashboard.windowMatches ?? [])];
+    const byMatchId = new Map();
+    merged.forEach((match) => {
+      if (match?.matchId && !byMatchId.has(match.matchId)) {
+        byMatchId.set(match.matchId, match);
+      }
+    });
+    return Array.from(byMatchId.values());
+  }, [dashboard.recentMatches, dashboard.windowMatches]);
   const selectedRecentMatch = useMemo(
-    () => (dashboard.recentMatches ?? []).find((item) => item.matchId === selectedRecentMatchId) ?? null,
-    [dashboard.recentMatches, selectedRecentMatchId]
+    () => selectableMatches.find((item) => item.matchId === selectedRecentMatchId) ?? null,
+    [selectableMatches, selectedRecentMatchId]
   );
 
   useEffect(() => {
@@ -595,6 +606,8 @@ function App() {
     setRecentMatchDetail(null);
     setRecentMatchDetailError('');
     setRecentMatchDetailLoading(false);
+    setSelectedHeroRowId(null);
+    setHeroRowManuallyCollapsed(false);
   }, [queryAccountId, days, reloadKey]);
 
   useEffect(() => {
@@ -602,14 +615,14 @@ function App() {
       return;
     }
 
-    const exists = (dashboard.recentMatches ?? []).some((item) => item.matchId === selectedRecentMatchId);
+    const exists = selectableMatches.some((item) => item.matchId === selectedRecentMatchId);
     if (!exists) {
       setSelectedRecentMatchId(null);
       setRecentMatchDetail(null);
       setRecentMatchDetailError('');
       setRecentMatchDetailLoading(false);
     }
-  }, [dashboard.recentMatches, selectedRecentMatchId]);
+  }, [selectableMatches, selectedRecentMatchId]);
 
   useEffect(() => {
     if (!selectedRecentMatch) {
@@ -669,20 +682,11 @@ function App() {
     copy.errors.fetchFailed,
   ]);
 
-  const availableRoles = useMemo(() => {
-    const roleSet = new Set(dashboard.heroPerformance.map((item) => item.role).filter(Boolean));
-    return Array.from(roleSet).sort((a, b) => a.localeCompare(b, lang === 'en' ? 'en' : 'zh'));
-  }, [dashboard.heroPerformance, lang]);
   const availableAttributes = useMemo(() => {
     const attributeSet = new Set(dashboard.heroPerformance.map((item) => item.attribute).filter(Boolean));
     return Array.from(attributeSet).sort((a, b) => a.localeCompare(b, lang === 'en' ? 'en' : 'zh'));
   }, [dashboard.heroPerformance, lang]);
 
-  useEffect(() => {
-    if (roleFilter !== 'all' && !availableRoles.includes(roleFilter)) {
-      setRoleFilter('all');
-    }
-  }, [availableRoles, roleFilter]);
   useEffect(() => {
     if (attributeFilter !== 'all' && !availableAttributes.includes(attributeFilter)) {
       setAttributeFilter('all');
@@ -692,13 +696,32 @@ function App() {
   const filteredHeroes = useMemo(() => {
     return dashboard.heroPerformance
       .filter((hero) => (attributeFilter === 'all' ? true : hero.attribute === attributeFilter))
-      .filter((hero) => (roleFilter === 'all' ? true : hero.role === roleFilter))
       .filter((hero) => hero.matches >= minMatches)
       .slice()
       .sort((a, b) => compareHeroes(a, b, sortKey, sortDir, lang));
-  }, [attributeFilter, dashboard.heroPerformance, lang, minMatches, roleFilter, sortDir, sortKey]);
+  }, [attributeFilter, dashboard.heroPerformance, lang, minMatches, sortDir, sortKey]);
 
-  const roleDistribution = useMemo(() => buildRoleDistribution(dashboard.heroPerformance), [dashboard.heroPerformance]);
+  useEffect(() => {
+    if (!selectedHeroRowId) {
+      return;
+    }
+    const hasSelectedHero = filteredHeroes.some((hero) => (hero.heroId ?? hero.hero) === selectedHeroRowId);
+    if (!hasSelectedHero) {
+      setSelectedHeroRowId(null);
+      setHeroRowManuallyCollapsed(false);
+    }
+  }, [filteredHeroes, selectedHeroRowId]);
+
+  useEffect(() => {
+    if (selectedHeroRowId || filteredHeroes.length === 0 || heroRowManuallyCollapsed) {
+      return;
+    }
+    const firstHero = filteredHeroes[0];
+    const firstHeroId = firstHero.heroId ?? firstHero.hero;
+    if (firstHeroId) {
+      setSelectedHeroRowId(firstHeroId);
+    }
+  }, [filteredHeroes, heroRowManuallyCollapsed, selectedHeroRowId]);
 
   const trendSummary = useMemo(() => {
     if (!dashboard.dailyWinRate.length) {
@@ -715,6 +738,19 @@ function App() {
     () => (dashboard.recentMatches ?? []).slice(0, recentMatchesLimit),
     [dashboard.recentMatches, recentMatchesLimit]
   );
+  const heroMatchesMap = useMemo(() => {
+    const grouped = new Map();
+    (dashboard.windowMatches ?? []).forEach((match) => {
+      const key = match.heroId ?? match.hero;
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.push(match);
+      } else {
+        grouped.set(key, [match]);
+      }
+    });
+    return grouped;
+  }, [dashboard.windowMatches]);
   const recentMatchSummary = useMemo(() => summarizeRecentMatches(visibleRecentMatches), [visibleRecentMatches]);
   const catalogLocale = lang === 'en' ? 'en' : 'zh';
   const heroCategories = useMemo(
@@ -939,7 +975,6 @@ function App() {
       [
         header.hero,
         header.attribute,
-        header.role,
         header.matches,
         header.winRate,
         header.avgKda,
@@ -950,7 +985,6 @@ function App() {
       ...filteredHeroes.map((hero) => [
         hero.hero,
         hero.attribute,
-        hero.role,
         hero.matches,
         `${((hero.wins / Math.max(1, hero.matches)) * 100).toFixed(1)}%`,
         hero.avgKda,
@@ -979,6 +1013,20 @@ function App() {
     setSelectedRecentMatchId(match.matchId);
   };
 
+  const handleSelectHeroRow = (hero) => {
+    if (!hero) {
+      return;
+    }
+    const rowId = hero.heroId ?? hero.hero;
+    if (selectedHeroRowId === rowId) {
+      setSelectedHeroRowId(null);
+      setHeroRowManuallyCollapsed(true);
+      return;
+    }
+    setSelectedHeroRowId(rowId);
+    setHeroRowManuallyCollapsed(false);
+  };
+
   const handleCloseRecentMatchDetail = () => {
     setSelectedRecentMatchId(null);
     setRecentMatchDetail(null);
@@ -987,7 +1035,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (activeTab === TAB_IDS.recentMatches) {
+    if (activeTab === TAB_IDS.recentMatches || activeTab === TAB_IDS.heroes) {
       return;
     }
     if (selectedRecentMatchId) {
@@ -1037,7 +1085,6 @@ function App() {
   const mostPlayedHero = dashboard.metrics.mostPlayedHero;
   const bestHeroAvgGpm = Number.isFinite(bestHero.avgGpm) ? bestHero.avgGpm : copy.recentMatches.emptyValue;
   const worstHeroAvgGpm = Number.isFinite(worstHero.avgGpm) ? worstHero.avgGpm : copy.recentMatches.emptyValue;
-  const topRole = roleDistribution[0]?.role;
   const activeAccount = savedAccounts.find(
     (account) => account.accountId === queryAccountId && account.rawId === queryRawId && account.idType === queryIdType
   );
@@ -1048,7 +1095,6 @@ function App() {
       totalMatches: dashboard.metrics.totalMatches,
     }),
     copy.overview.insightBestHero(bestHero.hero),
-    topRole ? copy.overview.insightTopRole(topRole) : copy.overview.insightTopRoleFallback,
   ];
 
   return (
@@ -1293,14 +1339,19 @@ function App() {
             <HeroPerformanceTable
               heroes={filteredHeroes}
               attributes={availableAttributes}
-              roles={availableRoles}
-              controls={{ sortKey, sortDir, attributeFilter, roleFilter, minMatches }}
+              controls={{ sortKey, sortDir, attributeFilter, minMatches }}
               onSortKeyChange={setSortKey}
               onSortDirChange={setSortDir}
               onAttributeFilterChange={setAttributeFilter}
-              onRoleFilterChange={setRoleFilter}
               onMinMatchesChange={handleMinMatchesChange}
               onExport={handleExportHeroes}
+              heroMatchesMap={heroMatchesMap}
+              selectedHeroId={selectedHeroRowId}
+              onSelectHero={handleSelectHeroRow}
+              selectedMatchId={selectedRecentMatchId}
+              onSelectMatch={handleOpenRecentMatchDetail}
+              recentCopy={copy.recentMatches}
+              lang={lang}
               copy={copy.table}
             />
           </section>
@@ -1336,9 +1387,8 @@ function App() {
             aria-labelledby={`tab-${TAB_IDS.rankRole}`}
             className="tab-content"
           >
-            <section className="two-cols">
+            <section>
               <RankDistribution items={dashboard.rankDistribution} days={days} copy={copy.rank} />
-              <RoleDistribution items={roleDistribution} days={days} copy={copy.role} />
             </section>
           </section>
         ) : null}

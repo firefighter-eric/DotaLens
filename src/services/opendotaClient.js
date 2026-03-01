@@ -3,10 +3,15 @@ import { itemCatalog } from '../data/itemCatalog.js';
 
 const API_BASE = 'https://api.opendota.com/api';
 const PLAYER_MATCH_PROJECT_FIELDS = [
+  'match_id',
+  'start_time',
+  'duration',
+  'player_slot',
   'hero_id',
   'kills',
   'deaths',
   'assists',
+  'hero_damage',
   'lane_role',
   'is_roaming',
   'average_rank',
