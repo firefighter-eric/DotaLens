@@ -35,6 +35,8 @@ const requestLocaleConfig = {
 };
 
 const heroesMetaCacheByLang = new Map();
+let itemMetaCache = null;
+let abilityNameByIdCache = null;
 
 const getRequestLocaleConfig = (lang) => requestLocaleConfig[lang] ?? requestLocaleConfig.zh;
 
@@ -63,12 +65,43 @@ const fetchJson = async (path, signal, locale) => {
 };
 
 const toArray = (value) => (Array.isArray(value) ? value : []);
+const toObject = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 
 const toAbsoluteUrl = (value) => {
   if (!value) {
     return '';
   }
   return new URL(value, OPEN_DOTA_SITE).toString();
+};
+
+const prettifyToken = (value) =>
+  String(value ?? '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const resolveNamedEntry = (value, fallbackToken) => {
+  const objectValue = toObject(value);
+  return objectValue.dname || objectValue.localized_name || objectValue.name || prettifyToken(fallbackToken);
+};
+
+const buildIdToTokenMap = (payload) => {
+  const source = toObject(payload);
+  const map = new Map();
+
+  Object.entries(source).forEach(([key, value]) => {
+    const idFromKey = Number.parseInt(key, 10);
+    if (Number.isFinite(idFromKey) && idFromKey > 0) {
+      map.set(idFromKey, String(value));
+      return;
+    }
+
+    const idFromValue = Number.parseInt(String(value), 10);
+    if (Number.isFinite(idFromValue) && idFromValue > 0) {
+      map.set(idFromValue, String(key));
+    }
+  });
+
+  return map;
 };
 
 const pickNameByLang = (nameEn, nameZh, lang) => {
@@ -131,11 +164,83 @@ const getHeroesMetaMap = async (signal, locale, lang) => {
   return heroesMetaCacheByLang.get(cacheKey);
 };
 
+const getItemMeta = async (signal, locale) => {
+  if (itemMetaCache) {
+    return itemMetaCache;
+  }
+
+  const fallback = {
+    nameById: new Map(),
+    nameByKey: new Map(),
+  };
+
+  try {
+    const [itemIdsPayload, itemsPayload] = await Promise.all([
+      fetchJson('/constants/item_ids', signal, locale),
+      fetchJson('/constants/items', signal, locale),
+    ]);
+
+    const idToToken = buildIdToTokenMap(itemIdsPayload);
+    const itemDefs = toObject(itemsPayload);
+    const nameById = new Map();
+    const nameByKey = new Map();
+
+    Object.entries(itemDefs).forEach(([token, detail]) => {
+      nameByKey.set(token, resolveNamedEntry(detail, token));
+    });
+
+    idToToken.forEach((token, id) => {
+      const detail = itemDefs[token];
+      nameById.set(id, resolveNamedEntry(detail, token));
+    });
+
+    itemMetaCache = {
+      nameById,
+      nameByKey,
+    };
+  } catch {
+    itemMetaCache = fallback;
+  }
+
+  return itemMetaCache;
+};
+
+const getAbilityNameById = async (signal, locale) => {
+  if (abilityNameByIdCache) {
+    return abilityNameByIdCache;
+  }
+
+  const fallback = new Map();
+
+  try {
+    const [abilityIdsPayload, abilitiesPayload] = await Promise.all([
+      fetchJson('/constants/ability_ids', signal, locale),
+      fetchJson('/constants/abilities', signal, locale),
+    ]);
+
+    const idToToken = buildIdToTokenMap(abilityIdsPayload);
+    const abilityDefs = toObject(abilitiesPayload);
+    const map = new Map();
+
+    idToToken.forEach((token, id) => {
+      const detail = abilityDefs[token];
+      map.set(id, resolveNamedEntry(detail, token));
+    });
+
+    abilityNameByIdCache = map;
+  } catch {
+    abilityNameByIdCache = fallback;
+  }
+
+  return abilityNameByIdCache;
+};
+
 export const createOpenDotaClient = (lang = 'zh') => {
   const locale = getRequestLocaleConfig(lang);
 
   return {
     getPlayer: (accountId, signal) => fetchJson(`/players/${accountId}`, signal, locale),
+    getMatchById: (matchId, signal) => fetchJson(`/matches/${matchId}`, signal, locale),
     getPlayerMatchesByDays: async (accountId, days, signal) => {
       const safeDays = toPositiveInt(days, 14);
       const projectQuery = PLAYER_MATCH_PROJECT_FIELDS.map((field) => `project=${field}`).join('&');
@@ -158,5 +263,7 @@ export const createOpenDotaClient = (lang = 'zh') => {
       }
     },
     getHeroesMetaMap: (signal) => getHeroesMetaMap(signal, locale, lang),
+    getItemMeta: (signal) => getItemMeta(signal, locale),
+    getAbilityNameById: (signal) => getAbilityNameById(signal, locale),
   };
 };

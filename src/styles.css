@@ -669,6 +669,13 @@ tbody tr:hover {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.panel-tag--subtle {
+  background: #f8fafc;
+  color: #475569;
+  border: 1px dashed #d0dbe7;
 }
 
 .recent-limit-switch {
@@ -703,6 +710,19 @@ tbody tr:hover {
   min-width: 980px;
 }
 
+.recent-row {
+  cursor: pointer;
+}
+
+.recent-row:focus-visible {
+  outline: 2px solid rgba(16, 163, 127, 0.5);
+  outline-offset: -2px;
+}
+
+.recent-row.is-selected {
+  background: rgba(16, 163, 127, 0.08);
+}
+
 .result-pill {
   display: inline-flex;
   align-items: center;
@@ -724,6 +744,193 @@ tbody tr:hover {
   color: #b91c1c;
   border-color: rgba(185, 28, 28, 0.22);
   background: rgba(248, 113, 113, 0.12);
+}
+
+.match-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.34);
+  z-index: 26;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.match-detail-drawer {
+  width: min(540px, 100%);
+  height: 100%;
+  background: #ffffff;
+  border-left: 1px solid #e5e7eb;
+  box-shadow: -8px 0 28px rgba(15, 23, 42, 0.12);
+  padding: 18px 18px 26px;
+  overflow-y: auto;
+}
+
+.match-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.match-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.match-detail-avatar {
+  width: 54px;
+  height: 30px;
+  border-radius: 6px;
+}
+
+.match-detail-title h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.match-detail-title p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.86rem;
+  word-break: break-word;
+}
+
+.match-detail-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.match-detail-close {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #64748b;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+}
+
+.match-detail-close:hover:not(:disabled) {
+  color: #111827;
+}
+
+.match-detail-state {
+  margin: 4px 0 0;
+  color: #4b5563;
+}
+
+.match-detail-state.is-error {
+  color: #b91c1c;
+}
+
+.match-detail-content {
+  display: grid;
+  gap: 16px;
+}
+
+.match-detail-section {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.match-detail-section h4 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+}
+
+.match-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.match-detail-grid > div,
+.match-detail-meta-grid > div {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px 9px;
+  display: grid;
+  gap: 3px;
+}
+
+.match-detail-grid span,
+.match-detail-meta-grid span,
+.match-detail-list span {
+  color: #64748b;
+  font-size: 0.76rem;
+}
+
+.match-detail-grid strong,
+.match-detail-meta-grid strong,
+.match-detail-list strong {
+  color: #0f172a;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.28;
+}
+
+.match-detail-meta-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.match-detail-list-title {
+  margin: 11px 0 8px;
+  font-size: 0.84rem;
+  color: #475569;
+  font-weight: 700;
+}
+
+.match-detail-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.match-detail-chip {
+  border-radius: 999px;
+  border: 1px solid #d4dbe5;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.8rem;
+  padding: 4px 9px;
+}
+
+.match-detail-list {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.match-detail-list li {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 7px 9px;
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.match-detail-list.is-ordered li {
+  grid-template-columns: 40px 1fr auto;
+}
+
+.match-detail-list em {
+  color: #64748b;
+  font-style: normal;
+  font-size: 0.76rem;
 }
 
 .empty-text,
@@ -749,6 +956,10 @@ tbody tr:hover {
   }
 
   .recent-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .match-detail-meta-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -821,5 +1032,21 @@ tbody tr:hover {
   .recent-panel-actions {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .match-detail-drawer {
+    width: 100%;
+    border-left: 0;
+    padding: 14px 14px 20px;
+  }
+
+  .match-detail-grid,
+  .match-detail-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .match-detail-list li,
+  .match-detail-list.is-ordered li {
+    grid-template-columns: 1fr;
   }
 }

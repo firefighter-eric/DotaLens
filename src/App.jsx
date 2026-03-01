@@ -5,9 +5,10 @@ import HeroPerformanceTable from './components/HeroPerformanceTable.jsx';
 import RankDistribution from './components/RankDistribution.jsx';
 import RoleDistribution from './components/RoleDistribution.jsx';
 import RecentMatchesPanel from './components/RecentMatchesPanel.jsx';
+import RecentMatchDetailDrawer from './components/RecentMatchDetailDrawer.jsx';
 import { dailyWinRate, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
 import { buildRoleDistribution, summarizeDashboard, summarizeRecentMatches } from './utils/metrics.js';
-import { fetchPlayerWindowAnalytics } from './services/opendota.js';
+import { fetchPlayerWindowAnalytics, fetchRecentMatchDetail } from './services/opendota.js';
 import { getCopy } from './i18n/copy.js';
 
 const MAX_UINT32 = 4294967295n;
@@ -93,6 +94,80 @@ const formatMatchDate = (startTime, lang) => {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date(startTime * 1000));
+};
+
+const createMockRecentMatchDetail = (match, lang) => {
+  const normalizedGpm = Number.isFinite(match.goldPerMin) ? match.goldPerMin : 0;
+  const normalizedXpm = Number.isFinite(match.xpPerMin) ? match.xpPerMin : 0;
+  const normalizedKda = Number.isFinite(match.kda) ? match.kda : 0;
+  const killParticipation = Math.min(95, Math.max(18, normalizedKda * 12));
+
+  const isZh = lang !== 'en';
+  const purchaseTimeline = [
+    { id: 'mock-1', timeSec: 0, item: isZh ? '起始装组合' : 'Starting Set' },
+    { id: 'mock-2', timeSec: 360, item: isZh ? '基础鞋' : 'Basic Boots' },
+    { id: 'mock-3', timeSec: 780, item: isZh ? '核心道具 1' : 'Core Item 1' },
+    { id: 'mock-4', timeSec: 1260, item: isZh ? '核心道具 2' : 'Core Item 2' },
+    { id: 'mock-5', timeSec: 1680, item: isZh ? '后期道具' : 'Late Game Item' },
+  ];
+
+  const skillBuild = [
+    { id: 'mock-s1', level: 1, ability: isZh ? '技能 1' : 'Ability 1', timeSec: 0 },
+    { id: 'mock-s2', level: 2, ability: isZh ? '技能 2' : 'Ability 2', timeSec: 75 },
+    { id: 'mock-s3', level: 3, ability: isZh ? '技能 1' : 'Ability 1', timeSec: 165 },
+    { id: 'mock-s4', level: 4, ability: isZh ? '技能 3' : 'Ability 3', timeSec: 260 },
+    { id: 'mock-s5', level: 5, ability: isZh ? '技能 1' : 'Ability 1', timeSec: 360 },
+    { id: 'mock-s6', level: 6, ability: isZh ? '大招' : 'Ultimate', timeSec: 500 },
+  ];
+
+  const impactScore = Math.max(
+    0,
+    Math.min(99, Math.round((match.result === 'win' ? 14 : 0) + normalizedKda * 9 + normalizedGpm / 12 + killParticipation * 0.28))
+  );
+
+  return {
+    matchId: match.matchId,
+    heroId: match.heroId,
+    hero: match.hero,
+    heroAvatar: match.heroAvatar,
+    overview: {
+      result: match.result,
+      startTime: match.startTime,
+      durationSec: match.durationSec,
+      gameMode: isZh ? '全英雄选择' : 'All Pick',
+      queueType: isZh ? '天梯' : 'Ranked',
+      laneRole: match.laneRole,
+      rank: match.rank,
+      kills: match.kills,
+      deaths: match.deaths,
+      assists: match.assists,
+      kda: normalizedKda,
+      goldPerMin: Number.isFinite(match.goldPerMin) ? match.goldPerMin : null,
+      xpPerMin: Number.isFinite(match.xpPerMin) ? match.xpPerMin : null,
+      killParticipation: Number(killParticipation.toFixed(1)),
+      impactScore,
+    },
+    core: {
+      heroDamage: Math.round(normalizedGpm * 40 + normalizedXpm * 5),
+      towerDamage: Math.round(normalizedGpm * 6),
+      heroHealing: Math.round(normalizedXpm * 3),
+      stunDuration: Number((normalizedKda * 4.2).toFixed(1)),
+      lastHits: Math.round(normalizedGpm * (match.durationSec / 60 / 12)),
+      denies: Math.round(normalizedGpm / 55),
+      netWorth: Math.round(normalizedGpm * (match.durationSec / 60)),
+      level: 25,
+    },
+    build: {
+      finalItems: isZh
+        ? ['核心道具 1', '核心道具 2', '保命装', '功能装', '后期道具']
+        : ['Core Item 1', 'Core Item 2', 'Defensive Item', 'Utility Item', 'Late Game Item'],
+      neutralItem: isZh ? '中立道具示例' : 'Sample Neutral Item',
+      purchaseTimeline,
+      skillBuild,
+      scepterTimeSec: 1320,
+      shardTimeSec: 1620,
+    },
+  };
 };
 
 const compareHeroes = (a, b, sortKey, sortDir, lang) => {
@@ -271,6 +346,14 @@ function App() {
   const [dashboard, setDashboard] = useState(() => createMockDashboard(getCopy('zh')));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [selectedRecentMatchId, setSelectedRecentMatchId] = useState(null);
+  const [recentMatchDetail, setRecentMatchDetail] = useState(null);
+  const [recentMatchDetailLoading, setRecentMatchDetailLoading] = useState(false);
+  const [recentMatchDetailError, setRecentMatchDetailError] = useState('');
+  const selectedRecentMatch = useMemo(
+    () => (dashboard.recentMatches ?? []).find((item) => item.matchId === selectedRecentMatchId) ?? null,
+    [dashboard.recentMatches, selectedRecentMatchId]
+  );
 
   useEffect(() => {
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
@@ -347,6 +430,85 @@ function App() {
       controller.abort();
     };
   }, [queryAccountId, days, reloadKey, lang, copy.errors.fetchFailed]);
+
+  useEffect(() => {
+    setSelectedRecentMatchId(null);
+    setRecentMatchDetail(null);
+    setRecentMatchDetailError('');
+    setRecentMatchDetailLoading(false);
+  }, [queryAccountId, days, reloadKey]);
+
+  useEffect(() => {
+    if (!selectedRecentMatchId) {
+      return;
+    }
+
+    const exists = (dashboard.recentMatches ?? []).some((item) => item.matchId === selectedRecentMatchId);
+    if (!exists) {
+      setSelectedRecentMatchId(null);
+      setRecentMatchDetail(null);
+      setRecentMatchDetailError('');
+      setRecentMatchDetailLoading(false);
+    }
+  }, [dashboard.recentMatches, selectedRecentMatchId]);
+
+  useEffect(() => {
+    if (!selectedRecentMatch) {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setRecentMatchDetail(null);
+    setRecentMatchDetailError('');
+    setRecentMatchDetailLoading(true);
+
+    const load = async () => {
+      if (dashboard.source === 'mock') {
+        const mockDetail = createMockRecentMatchDetail(selectedRecentMatch, lang);
+        if (!controller.signal.aborted) {
+          setRecentMatchDetail(mockDetail);
+          setRecentMatchDetailLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const detail = await fetchRecentMatchDetail(queryAccountId, selectedRecentMatch.matchId, controller.signal, lang, {
+          heroId: selectedRecentMatch.heroId,
+          hero: selectedRecentMatch.hero,
+          heroAvatar: selectedRecentMatch.heroAvatar,
+          playerSlot: selectedRecentMatch.playerSlot,
+          startTime: selectedRecentMatch.startTime,
+          durationSec: selectedRecentMatch.durationSec,
+        });
+
+        if (!controller.signal.aborted) {
+          setRecentMatchDetail(detail);
+        }
+      } catch (loadError) {
+        if (loadError.name !== 'AbortError') {
+          setRecentMatchDetailError(loadError.message || copy.recentMatches?.detail?.loadFailed || copy.errors.fetchFailed);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setRecentMatchDetailLoading(false);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    selectedRecentMatch,
+    dashboard.source,
+    queryAccountId,
+    lang,
+    copy.recentMatches?.detail?.loadFailed,
+    copy.errors.fetchFailed,
+  ]);
 
   const availableRoles = useMemo(() => {
     const roleSet = new Set(dashboard.heroPerformance.map((item) => item.role).filter(Boolean));
@@ -503,6 +665,32 @@ function App() {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
+
+  const handleOpenRecentMatchDetail = (match) => {
+    if (!match?.matchId) {
+      return;
+    }
+    setSelectedRecentMatchId(match.matchId);
+  };
+
+  const handleCloseRecentMatchDetail = () => {
+    setSelectedRecentMatchId(null);
+    setRecentMatchDetail(null);
+    setRecentMatchDetailError('');
+    setRecentMatchDetailLoading(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === TAB_IDS.recentMatches) {
+      return;
+    }
+    if (selectedRecentMatchId) {
+      setSelectedRecentMatchId(null);
+      setRecentMatchDetail(null);
+      setRecentMatchDetailError('');
+      setRecentMatchDetailLoading(false);
+    }
+  }, [activeTab, selectedRecentMatchId]);
 
   const tabItems = [
     { id: TAB_IDS.recentMatches, label: copy.tabs.recentMatches },
@@ -860,10 +1048,23 @@ function App() {
               limit={recentMatchesLimit}
               options={RECENT_MATCH_OPTIONS}
               onLimitChange={setRecentMatchesLimit}
+              selectedMatchId={selectedRecentMatchId}
+              onSelectMatch={handleOpenRecentMatchDetail}
             />
           </section>
         ) : null}
       </main>
+
+      <RecentMatchDetailDrawer
+        open={Boolean(selectedRecentMatchId)}
+        copy={copy.recentMatches}
+        lang={lang}
+        match={selectedRecentMatch}
+        detail={recentMatchDetail}
+        loading={recentMatchDetailLoading}
+        error={recentMatchDetailError}
+        onClose={handleCloseRecentMatchDetail}
+      />
     </div>
   );
 }

@@ -3,6 +3,7 @@ const fallbackCopy = {
   tag: (count) => `最近 ${count} 场`,
   limitAriaLabel: '最近对局场次',
   noDataText: '暂无最近对局数据。',
+  openHint: '点击任意一行查看详情',
   summary: {
     winRate: '胜率',
     avgKda: '平均 KDA',
@@ -51,7 +52,17 @@ const formatDuration = (durationSec, fallback) => {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 };
 
-function RecentMatchesPanel({ matches = [], summary, copy = fallbackCopy, lang = 'zh', limit = 10, options = [10, 20, 30], onLimitChange }) {
+function RecentMatchesPanel({
+  matches = [],
+  summary,
+  copy = fallbackCopy,
+  lang = 'zh',
+  limit = 10,
+  options = [10, 20, 30],
+  onLimitChange,
+  selectedMatchId = null,
+  onSelectMatch,
+}) {
   const locale = lang === 'en' ? 'en-US' : 'zh-CN';
   const safeSummary = summary ?? {
     winRate: '0.0',
@@ -68,6 +79,7 @@ function RecentMatchesPanel({ matches = [], summary, copy = fallbackCopy, lang =
         <h2>{title}</h2>
         <div className="recent-panel-actions">
           <span className="panel-tag">{copy.tag(matches.length)}</span>
+          <span className="panel-tag panel-tag--subtle">{copy.openHint || fallbackCopy.openHint}</span>
           <div className="range-switch recent-limit-switch" role="group" aria-label={copy.limitAriaLabel}>
             {options.map((option) => (
               <button
@@ -128,9 +140,21 @@ function RecentMatchesPanel({ matches = [], summary, copy = fallbackCopy, lang =
                   const kdaValue = Number.isFinite(match.kda) ? match.kda.toFixed(2) : copy.emptyValue;
                   const gpm = Number.isFinite(match.goldPerMin) ? match.goldPerMin : copy.emptyValue;
                   const xpm = Number.isFinite(match.xpPerMin) ? match.xpPerMin : copy.emptyValue;
+                  const rowClassName = `recent-row ${selectedMatchId === match.matchId ? 'is-selected' : ''}`;
 
                   return (
-                    <tr key={match.matchId}>
+                    <tr
+                      key={match.matchId}
+                      className={rowClassName}
+                      tabIndex={0}
+                      onClick={() => onSelectMatch?.(match)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onSelectMatch?.(match);
+                        }
+                      }}
+                    >
                       <td>{formatDateTime(match.startTime, locale, copy.emptyValue)}</td>
                       <td>
                         <div className="hero-name-cell">
