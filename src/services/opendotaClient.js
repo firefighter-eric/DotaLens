@@ -1,12 +1,17 @@
 import { heroCatalog } from '../data/heroCatalog.js';
+import { itemCatalog } from '../data/itemCatalog.js';
 
 const API_BASE = 'https://api.opendota.com/api';
-const OPEN_DOTA_SITE = 'https://www.opendota.com';
 const PLAYER_MATCH_PROJECT_FIELDS = [
+  'match_id',
+  'start_time',
+  'duration',
+  'player_slot',
   'hero_id',
   'kills',
   'deaths',
   'assists',
+  'hero_damage',
   'lane_role',
   'is_roaming',
   'average_rank',
@@ -35,6 +40,8 @@ const requestLocaleConfig = {
 };
 
 const heroesMetaCacheByLang = new Map();
+const itemMetaCacheByLang = new Map();
+let abilityNameByIdCache = null;
 
 const getRequestLocaleConfig = (lang) => requestLocaleConfig[lang] ?? requestLocaleConfig.zh;
 
@@ -63,12 +70,9 @@ const fetchJson = async (path, signal, locale) => {
 };
 
 const toArray = (value) => (Array.isArray(value) ? value : []);
-
-const toAbsoluteUrl = (value) => {
-  if (!value) {
-    return '';
-  }
-  return new URL(value, OPEN_DOTA_SITE).toString();
+const toFiniteOrNull = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
 };
 
 const pickNameByLang = (nameEn, nameZh, lang) => {
@@ -78,40 +82,95 @@ const pickNameByLang = (nameEn, nameZh, lang) => {
   return nameZh || nameEn || '';
 };
 
+const normalizePrimaryAttr = (value) => {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (normalized === 'str' || normalized === 'agi' || normalized === 'int' || normalized === 'all') {
+    return normalized;
+  }
+  if (normalized === 'universal') {
+    return 'all';
+  }
+  return '';
+};
+
+const normalizeHeroRoles = (value) =>
+  toArray(value)
+    .map((item) => String(item ?? '').trim())
+    .filter(Boolean);
+
+const createHeroDetailFromSource = (source = {}) => ({
+  primaryAttr: normalizePrimaryAttr(source.primaryAttr ?? source.primary_attr),
+  attackType: String(source.attackType ?? source.attack_type ?? '').trim(),
+  roles: normalizeHeroRoles(source.roles),
+  baseStr: toFiniteOrNull(source.baseStr ?? source.base_str),
+  strGain: toFiniteOrNull(source.strGain ?? source.str_gain),
+  baseAgi: toFiniteOrNull(source.baseAgi ?? source.base_agi),
+  agiGain: toFiniteOrNull(source.agiGain ?? source.agi_gain),
+  baseInt: toFiniteOrNull(source.baseInt ?? source.base_int),
+  intGain: toFiniteOrNull(source.intGain ?? source.int_gain),
+  attackRange: toFiniteOrNull(source.attackRange ?? source.attack_range),
+  moveSpeed: toFiniteOrNull(source.moveSpeed ?? source.move_speed),
+});
+
 const buildPersistedHeroesMetaMap = (lang) =>
   heroCatalog.reduce((map, hero) => {
     const nameEn = hero.nameEn ?? hero.name ?? '';
     const nameZh = hero.nameZh ?? nameEn;
+    const detail = createHeroDetailFromSource(hero);
     map.set(hero.id, {
       nameEn,
       nameZh,
       name: pickNameByLang(nameEn, nameZh, lang),
       avatar: hero.avatar,
       avatarSource: hero.avatarSource,
+      ...detail,
     });
     return map;
   }, new Map());
 
-const mergeHeroesMeta = (heroes, persistedMap, lang) => {
-  const merged = new Map(persistedMap);
-  heroes.forEach((hero) => {
-    if (hero?.id != null) {
-      const existing = merged.get(hero.id);
-      const nameEn = hero.localized_name ?? existing?.nameEn ?? `Hero #${hero.id}`;
-      const nameZh = existing?.nameZh ?? nameEn;
-      merged.set(hero.id, {
-        nameEn,
-        nameZh,
-        name: pickNameByLang(nameEn, nameZh, lang),
-        avatar: existing?.avatar ?? '',
-        avatarSource: existing?.avatarSource ?? toAbsoluteUrl(hero.img),
-      });
+const buildPersistedItemMeta = (lang) => {
+  const nameById = new Map();
+  const nameByKey = new Map();
+  const itemById = new Map();
+  const itemByKey = new Map();
+
+  itemCatalog.forEach((item) => {
+    const token = String(item?.key ?? '');
+    if (!token) {
+      return;
+    }
+
+    const nameEn = item?.nameEn ?? item?.name ?? '';
+    const nameZh = item?.nameZh ?? nameEn;
+    const entry = {
+      nameEn,
+      nameZh,
+      name: pickNameByLang(nameEn, nameZh, lang),
+      icon: item?.icon ?? '',
+      iconSource: item?.iconSource ?? '',
+    };
+
+    nameByKey.set(token, entry.name);
+    itemByKey.set(token, entry);
+
+    const id = Number(item?.id);
+    if (Number.isFinite(id) && id > 0) {
+      nameById.set(id, entry.name);
+      itemById.set(id, entry);
     }
   });
-  return merged;
+
+  return {
+    nameById,
+    nameByKey,
+    itemById,
+    itemByKey,
+  };
 };
 
-const getHeroesMetaMap = async (signal, locale, lang) => {
+const getHeroesMetaMap = async (_signal, _locale, lang) => {
   const cacheKey = lang === 'en' ? 'en' : 'zh';
   const cached = heroesMetaCacheByLang.get(cacheKey);
   if (cached) {
@@ -119,16 +178,29 @@ const getHeroesMetaMap = async (signal, locale, lang) => {
   }
 
   const persistedMap = buildPersistedHeroesMetaMap(cacheKey);
+  heroesMetaCacheByLang.set(cacheKey, persistedMap);
+  return persistedMap;
+};
 
-  try {
-    const heroes = toArray(await fetchJson('/heroes', signal, locale));
-    const merged = mergeHeroesMeta(heroes, persistedMap, cacheKey);
-    heroesMetaCacheByLang.set(cacheKey, merged);
-  } catch {
-    heroesMetaCacheByLang.set(cacheKey, persistedMap);
+const getItemMeta = async (_signal, _locale, lang) => {
+  const cacheKey = lang === 'en' ? 'en' : 'zh';
+  const cached = itemMetaCacheByLang.get(cacheKey);
+  if (cached) {
+    return cached;
   }
 
-  return heroesMetaCacheByLang.get(cacheKey);
+  const persistedMeta = buildPersistedItemMeta(cacheKey);
+  itemMetaCacheByLang.set(cacheKey, persistedMeta);
+  return persistedMeta;
+};
+
+const getAbilityNameById = async () => {
+  if (abilityNameByIdCache) {
+    return abilityNameByIdCache;
+  }
+
+  abilityNameByIdCache = new Map();
+  return abilityNameByIdCache;
 };
 
 export const createOpenDotaClient = (lang = 'zh') => {
@@ -136,6 +208,7 @@ export const createOpenDotaClient = (lang = 'zh') => {
 
   return {
     getPlayer: (accountId, signal) => fetchJson(`/players/${accountId}`, signal, locale),
+    getMatchById: (matchId, signal) => fetchJson(`/matches/${matchId}`, signal, locale),
     getPlayerMatchesByDays: async (accountId, days, signal) => {
       const safeDays = toPositiveInt(days, 14);
       const projectQuery = PLAYER_MATCH_PROJECT_FIELDS.map((field) => `project=${field}`).join('&');
@@ -158,5 +231,7 @@ export const createOpenDotaClient = (lang = 'zh') => {
       }
     },
     getHeroesMetaMap: (signal) => getHeroesMetaMap(signal, locale, lang),
+    getItemMeta: (signal) => getItemMeta(signal, locale, lang),
+    getAbilityNameById: () => getAbilityNameById(),
   };
 };

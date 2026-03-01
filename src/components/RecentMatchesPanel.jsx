@@ -3,6 +3,7 @@ const fallbackCopy = {
   tag: (count) => `最近 ${count} 场`,
   limitAriaLabel: '最近对局场次',
   noDataText: '暂无最近对局数据。',
+  openHint: '点击任意一行查看详情',
   summary: {
     winRate: '胜率',
     avgKda: '平均 KDA',
@@ -16,8 +17,8 @@ const fallbackCopy = {
     result: '结果',
     kda: 'K/D/A',
     gpmXpm: 'GPM / XPM',
+    heroDamage: '英雄伤害',
     duration: '时长',
-    laneRole: '分路',
     rank: '段位',
     matchId: '对局 ID',
   },
@@ -25,8 +26,15 @@ const fallbackCopy = {
     win: '胜利',
     loss: '失败',
   },
+  timeTags: {
+    today: '今天',
+    yesterday: '昨天',
+    thisWeek: '本周',
+  },
   emptyValue: '-',
 };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const formatDateTime = (startTime, locale, fallback) => {
   if (!startTime) {
@@ -51,7 +59,57 @@ const formatDuration = (durationSec, fallback) => {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 };
 
-function RecentMatchesPanel({ matches = [], summary, copy = fallbackCopy, lang = 'zh', limit = 10, options = [10, 20, 30], onLimitChange }) {
+const formatNumber = (value, locale, fallback) => {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+  return new Intl.NumberFormat(locale).format(value);
+};
+
+const getDayStartMs = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+
+const getWeekStartMs = (date) => {
+  const weekStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayOffset = (weekStart.getDay() + 6) % 7;
+  weekStart.setDate(weekStart.getDate() - dayOffset);
+  return weekStart.getTime();
+};
+
+const resolveMatchTimeTag = (startTime, boundaries, labels) => {
+  if (!startTime || !labels) {
+    return null;
+  }
+
+  const startMs = startTime * 1000;
+  if (!Number.isFinite(startMs)) {
+    return null;
+  }
+
+  const matchDayStartMs = getDayStartMs(new Date(startMs));
+  if (matchDayStartMs === boundaries.todayStartMs) {
+    return { key: 'today', label: labels.today };
+  }
+  if (matchDayStartMs === boundaries.yesterdayStartMs) {
+    return { key: 'yesterday', label: labels.yesterday };
+  }
+  if (matchDayStartMs >= boundaries.weekStartMs && matchDayStartMs < boundaries.yesterdayStartMs) {
+    return { key: 'thisWeek', label: labels.thisWeek };
+  }
+
+  return null;
+};
+
+function RecentMatchesPanel({
+  matches = [],
+  summary,
+  copy = fallbackCopy,
+  lang = 'zh',
+  limit = 10,
+  options = [10, 20, 30],
+  onLimitChange,
+  selectedMatchId = null,
+  onSelectMatch,
+}) {
   const locale = lang === 'en' ? 'en-US' : 'zh-CN';
   const safeSummary = summary ?? {
     winRate: '0.0',
@@ -61,6 +119,13 @@ function RecentMatchesPanel({ matches = [], summary, copy = fallbackCopy, lang =
   };
   const avgGpmValue = Number.isFinite(safeSummary.avgGpm) ? safeSummary.avgGpm : copy.emptyValue;
   const title = typeof copy.title === 'function' ? copy.title(limit) : copy.title;
+  const timeTags = copy.timeTags ?? fallbackCopy.timeTags;
+  const now = new Date();
+  const timeBoundaries = {
+    todayStartMs: getDayStartMs(now),
+    yesterdayStartMs: getDayStartMs(now) - DAY_MS,
+    weekStartMs: getWeekStartMs(now),
+  };
 
   return (
     <section className="panel recent-panel">
@@ -68,6 +133,7 @@ function RecentMatchesPanel({ matches = [], summary, copy = fallbackCopy, lang =
         <h2>{title}</h2>
         <div className="recent-panel-actions">
           <span className="panel-tag">{copy.tag(matches.length)}</span>
+          <span className="panel-tag panel-tag--subtle">{copy.openHint || fallbackCopy.openHint}</span>
           <div className="range-switch recent-limit-switch" role="group" aria-label={copy.limitAriaLabel}>
             {options.map((option) => (
               <button
@@ -117,8 +183,8 @@ function RecentMatchesPanel({ matches = [], summary, copy = fallbackCopy, lang =
                   <th>{copy.headers.result}</th>
                   <th>{copy.headers.kda}</th>
                   <th>{copy.headers.gpmXpm}</th>
+                  <th>{copy.headers.heroDamage}</th>
                   <th>{copy.headers.duration}</th>
-                  <th>{copy.headers.laneRole}</th>
                   <th>{copy.headers.rank}</th>
                   <th>{copy.headers.matchId}</th>
                 </tr>
@@ -128,10 +194,29 @@ function RecentMatchesPanel({ matches = [], summary, copy = fallbackCopy, lang =
                   const kdaValue = Number.isFinite(match.kda) ? match.kda.toFixed(2) : copy.emptyValue;
                   const gpm = Number.isFinite(match.goldPerMin) ? match.goldPerMin : copy.emptyValue;
                   const xpm = Number.isFinite(match.xpPerMin) ? match.xpPerMin : copy.emptyValue;
+                  const heroDamage = formatNumber(match.heroDamage, locale, copy.emptyValue);
+                  const rowClassName = `recent-row ${selectedMatchId === match.matchId ? 'is-selected' : ''}`;
+                  const timeTag = resolveMatchTimeTag(match.startTime, timeBoundaries, timeTags);
 
                   return (
-                    <tr key={match.matchId}>
-                      <td>{formatDateTime(match.startTime, locale, copy.emptyValue)}</td>
+                    <tr
+                      key={match.matchId}
+                      className={rowClassName}
+                      tabIndex={0}
+                      onClick={() => onSelectMatch?.(match)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onSelectMatch?.(match);
+                        }
+                      }}
+                    >
+                      <td>
+                        <div className="recent-date-cell">
+                          <span>{formatDateTime(match.startTime, locale, copy.emptyValue)}</span>
+                          {timeTag ? <span className={`recent-time-tag is-${timeTag.key}`}>{timeTag.label}</span> : null}
+                        </div>
+                      </td>
                       <td>
                         <div className="hero-name-cell">
                           {match.heroAvatar ? (
@@ -151,8 +236,8 @@ function RecentMatchesPanel({ matches = [], summary, copy = fallbackCopy, lang =
                       <td>
                         {gpm} / {xpm}
                       </td>
+                      <td>{heroDamage}</td>
                       <td>{formatDuration(match.durationSec, copy.emptyValue)}</td>
-                      <td>{match.laneRole || copy.emptyValue}</td>
                       <td>{match.rank || copy.emptyValue}</td>
                       <td>{match.matchId}</td>
                     </tr>

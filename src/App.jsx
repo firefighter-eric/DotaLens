@@ -3,11 +3,15 @@ import StatCard from './components/StatCard.jsx';
 import WinRateTrend from './components/WinRateTrend.jsx';
 import HeroPerformanceTable from './components/HeroPerformanceTable.jsx';
 import RankDistribution from './components/RankDistribution.jsx';
-import RoleDistribution from './components/RoleDistribution.jsx';
 import RecentMatchesPanel from './components/RecentMatchesPanel.jsx';
+import RecentMatchDetailDrawer from './components/RecentMatchDetailDrawer.jsx';
+import CatalogListPanel from './components/CatalogListPanel.jsx';
 import { dailyWinRate, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
-import { buildRoleDistribution, summarizeDashboard, summarizeRecentMatches } from './utils/metrics.js';
-import { fetchPlayerWindowAnalytics } from './services/opendota.js';
+import { heroCatalog } from './data/heroCatalog.js';
+import { itemCatalog } from './data/itemCatalog.js';
+import { summarizeDashboard, summarizeRecentMatches } from './utils/metrics.js';
+import { fetchPlayerWindowAnalytics, fetchRecentMatchDetail } from './services/opendota.js';
+import { createOpenDotaClient } from './services/opendotaClient.js';
 import { getCopy } from './i18n/copy.js';
 
 const MAX_UINT32 = 4294967295n;
@@ -23,18 +27,114 @@ const TAB_IDS = {
   trend: 'trend',
   rankRole: 'rankRole',
   recentMatches: 'recentMatches',
+  allHeroes: 'allHeroes',
+  allItems: 'allItems',
 };
 
-const createMockDashboard = (copy) => {
-  const metrics = summarizeDashboard(heroPerformance);
+const HERO_ATTRIBUTE_CATEGORY_MAP = {
+  str: 'strength',
+  agi: 'agility',
+  int: 'intelligence',
+  all: 'universal',
+};
+
+const normalizePrimaryAttr = (value) => {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (normalized === 'universal') {
+    return 'all';
+  }
+  if (normalized === 'str' || normalized === 'agi' || normalized === 'int' || normalized === 'all') {
+    return normalized;
+  }
+  return '';
+};
+
+const resolveHeroCategory = (primaryAttr) => HERO_ATTRIBUTE_CATEGORY_MAP[normalizePrimaryAttr(primaryAttr)] ?? 'unknown';
+
+const ITEM_CATEGORY_RULES = [
+  { id: 'consumable', keywords: ['tango', 'clarity', 'flask', 'dust', 'ward', 'smoke', 'tpscroll', 'mango', 'faerie'] },
+  { id: 'attribute', keywords: ['gauntlets', 'slippers', 'mantle', 'circlet', 'belt', 'robe', 'branch', 'ogre_axe', 'blade_of_alacrity', 'staff_of_wizardry'] },
+  { id: 'support', keywords: ['mekansm', 'greaves', 'pipe', 'drum', 'vladmir', 'glimmer', 'force_staff', 'lotus', 'urn', 'vessel'] },
+  { id: 'magic', keywords: ['dagon', 'veil', 'kaya', 'sange_and_kaya', 'ethereal_blade', 'octarine', 'wind_waker'] },
+  { id: 'armor', keywords: ['platemail', 'assault', 'shivas', 'mail', 'buckler', 'helm', 'blade_mail', 'lotus_orb'] },
+  { id: 'weapon', keywords: ['sword', 'blade', 'desolator', 'daedalus', 'rapier', 'butterfly', 'basher', 'abyssal', 'manta', 'echo_sabre'] },
+];
+
+const resolveItemCategory = (key) => {
+  const normalized = String(key ?? '').toLowerCase();
+  const matched = ITEM_CATEGORY_RULES.find((rule) => rule.keywords.some((keyword) => normalized.includes(keyword)));
+  return matched?.id ?? 'equipment';
+};
+
+const MOCK_ATTRIBUTE_LABEL = {
+  zh: {
+    Strength: '力量',
+    Agility: '敏捷',
+    Intelligence: '智力',
+    Universal: '全才',
+    Unlabeled: '未标注',
+  },
+  en: {
+    Strength: 'Strength',
+    Agility: 'Agility',
+    Intelligence: 'Intelligence',
+    Universal: 'Universal',
+    Unlabeled: 'Unlabeled',
+  },
+};
+
+const localizeMockAttribute = (attribute, lang) => {
+  const locale = lang === 'en' ? 'en' : 'zh';
+  return MOCK_ATTRIBUTE_LABEL[locale][attribute] ?? MOCK_ATTRIBUTE_LABEL[locale].Unlabeled;
+};
+
+const toFiniteOrNull = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const formatGrowthValue = (baseValue, gainValue, fallback) => {
+  const base = toFiniteOrNull(baseValue);
+  const gain = toFiniteOrNull(gainValue);
+  if (base === null) {
+    return fallback;
+  }
+  if (gain === null) {
+    return String(base);
+  }
+  return `${base} (+${gain.toFixed(1)})`;
+};
+
+const formatNumberValue = (value, fallback) => {
+  const number = toFiniteOrNull(value);
+  return number === null ? fallback : String(number);
+};
+
+const formatRolesValue = (roles, fallback) => {
+  if (!Array.isArray(roles) || roles.length === 0) {
+    return fallback;
+  }
+  const normalized = roles.filter(Boolean);
+  return normalized.length > 0 ? normalized.join(' / ') : fallback;
+};
+
+const createMockDashboard = (copy, lang = 'zh') => {
+  const localizedHeroPerformance = heroPerformance.map((hero) => ({
+    ...hero,
+    attribute: localizeMockAttribute(hero.attribute, lang),
+  }));
+  const metrics = summarizeDashboard(localizedHeroPerformance);
   return {
     source: 'mock',
     playerName: copy.misc.samplePlayerName,
     totalMatches: metrics.totalMatches,
-    heroPerformance,
+    heroPerformance: localizedHeroPerformance,
     dailyWinRate,
     rankDistribution,
     recentMatches,
+    windowMatches: recentMatches,
     metrics,
   };
 };
@@ -93,6 +193,114 @@ const formatMatchDate = (startTime, lang) => {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date(startTime * 1000));
+};
+
+const createMockRecentMatchDetail = (match, lang) => {
+  const normalizedGpm = Number.isFinite(match.goldPerMin) ? match.goldPerMin : 0;
+  const normalizedXpm = Number.isFinite(match.xpPerMin) ? match.xpPerMin : 0;
+  const normalizedKda = Number.isFinite(match.kda) ? match.kda : 0;
+  const killParticipation = Math.min(95, Math.max(18, normalizedKda * 12));
+
+  const isZh = lang !== 'en';
+  const purchaseTimeline = [
+    { id: 'mock-1', timeSec: 0, item: isZh ? '起始装组合' : 'Starting Set' },
+    { id: 'mock-2', timeSec: 360, item: isZh ? '基础鞋' : 'Basic Boots' },
+    { id: 'mock-3', timeSec: 780, item: isZh ? '核心道具 1' : 'Core Item 1' },
+    { id: 'mock-4', timeSec: 1260, item: isZh ? '核心道具 2' : 'Core Item 2' },
+    { id: 'mock-5', timeSec: 1680, item: isZh ? '后期道具' : 'Late Game Item' },
+  ];
+
+  const skillBuild = [
+    { id: 'mock-s1', level: 1, ability: isZh ? '技能 1' : 'Ability 1', timeSec: 0 },
+    { id: 'mock-s2', level: 2, ability: isZh ? '技能 2' : 'Ability 2', timeSec: 75 },
+    { id: 'mock-s3', level: 3, ability: isZh ? '技能 1' : 'Ability 1', timeSec: 165 },
+    { id: 'mock-s4', level: 4, ability: isZh ? '技能 3' : 'Ability 3', timeSec: 260 },
+    { id: 'mock-s5', level: 5, ability: isZh ? '技能 1' : 'Ability 1', timeSec: 360 },
+    { id: 'mock-s6', level: 6, ability: isZh ? '大招' : 'Ultimate', timeSec: 500 },
+  ];
+
+  const impactScore = Math.max(
+    0,
+    Math.min(99, Math.round((match.result === 'win' ? 14 : 0) + normalizedKda * 9 + normalizedGpm / 12 + killParticipation * 0.28))
+  );
+  const mockPlayers = [
+    {
+      id: 'mock-player-1',
+      playerName: isZh ? '你' : 'You',
+      team: 'radiant',
+      hero: match.hero,
+      heroAvatar: match.heroAvatar,
+      laneRole: match.laneRole,
+      rank: match.rank,
+      kills: match.kills,
+      deaths: match.deaths,
+      assists: match.assists,
+      kda: normalizedKda,
+      goldPerMin: Number.isFinite(match.goldPerMin) ? match.goldPerMin : 0,
+      xpPerMin: Number.isFinite(match.xpPerMin) ? match.xpPerMin : 0,
+      lastHits: Math.round(normalizedGpm * (match.durationSec / 60 / 12)),
+      denies: Math.round(normalizedGpm / 55),
+      netWorth: Math.round(normalizedGpm * (match.durationSec / 60)),
+      heroDamage: Math.round(normalizedGpm * 40 + normalizedXpm * 5),
+      towerDamage: Math.round(normalizedGpm * 6),
+      heroHealing: Math.round(normalizedXpm * 3),
+      isCurrentPlayer: true,
+    },
+    { id: 'mock-player-2', playerName: isZh ? '队友 A' : 'Teammate A', team: 'radiant', hero: 'Invoker', kda: 3.6, kills: 9, deaths: 5, assists: 12, goldPerMin: 598, xpPerMin: 644, lastHits: 201, denies: 12, netWorth: 24890, heroDamage: 35600, towerDamage: 3900, heroHealing: 120 },
+    { id: 'mock-player-3', playerName: isZh ? '队友 B' : 'Teammate B', team: 'radiant', hero: 'Mars', kda: 3.4, kills: 6, deaths: 6, assists: 14, goldPerMin: 488, xpPerMin: 571, lastHits: 132, denies: 6, netWorth: 20130, heroDamage: 21900, towerDamage: 4500, heroHealing: 0 },
+    { id: 'mock-player-4', playerName: isZh ? '队友 C' : 'Teammate C', team: 'radiant', hero: 'Rubick', kda: 2.8, kills: 4, deaths: 7, assists: 16, goldPerMin: 372, xpPerMin: 503, lastHits: 62, denies: 2, netWorth: 15620, heroDamage: 14300, towerDamage: 1200, heroHealing: 400 },
+    { id: 'mock-player-5', playerName: isZh ? '队友 D' : 'Teammate D', team: 'radiant', hero: 'Oracle', kda: 3.1, kills: 2, deaths: 5, assists: 14, goldPerMin: 341, xpPerMin: 462, lastHits: 38, denies: 1, netWorth: 14210, heroDamage: 9200, towerDamage: 600, heroHealing: 12100 },
+    { id: 'mock-player-6', playerName: isZh ? '对手 A' : 'Opponent A', team: 'dire', hero: 'Phantom Assassin', kda: 3.0, kills: 11, deaths: 7, assists: 10, goldPerMin: 617, xpPerMin: 653, lastHits: 223, denies: 13, netWorth: 26010, heroDamage: 33800, towerDamage: 3100, heroHealing: 0 },
+    { id: 'mock-player-7', playerName: isZh ? '对手 B' : 'Opponent B', team: 'dire', hero: 'Lina', kda: 2.7, kills: 8, deaths: 8, assists: 14, goldPerMin: 512, xpPerMin: 590, lastHits: 151, denies: 9, netWorth: 21250, heroDamage: 29400, towerDamage: 2100, heroHealing: 0 },
+    { id: 'mock-player-8', playerName: isZh ? '对手 C' : 'Opponent C', team: 'dire', hero: 'Underlord', kda: 2.3, kills: 5, deaths: 9, assists: 16, goldPerMin: 444, xpPerMin: 530, lastHits: 121, denies: 5, netWorth: 18900, heroDamage: 17300, towerDamage: 2400, heroHealing: 0 },
+    { id: 'mock-player-9', playerName: isZh ? '对手 D' : 'Opponent D', team: 'dire', hero: 'Disruptor', kda: 2.1, kills: 3, deaths: 10, assists: 18, goldPerMin: 335, xpPerMin: 470, lastHits: 36, denies: 1, netWorth: 13980, heroDamage: 12900, towerDamage: 430, heroHealing: 0 },
+    { id: 'mock-player-10', playerName: isZh ? '对手 E' : 'Opponent E', team: 'dire', hero: 'Warlock', kda: 2.0, kills: 2, deaths: 9, assists: 16, goldPerMin: 322, xpPerMin: 456, lastHits: 34, denies: 0, netWorth: 13450, heroDamage: 8700, towerDamage: 380, heroHealing: 9800 },
+  ];
+
+  return {
+    matchId: match.matchId,
+    heroId: match.heroId,
+    hero: match.hero,
+    heroAvatar: match.heroAvatar,
+    overview: {
+      result: match.result,
+      startTime: match.startTime,
+      durationSec: match.durationSec,
+      gameMode: isZh ? '全英雄选择' : 'All Pick',
+      queueType: isZh ? '天梯' : 'Ranked',
+      laneRole: match.laneRole,
+      rank: match.rank,
+      kills: match.kills,
+      deaths: match.deaths,
+      assists: match.assists,
+      kda: normalizedKda,
+      goldPerMin: Number.isFinite(match.goldPerMin) ? match.goldPerMin : null,
+      xpPerMin: Number.isFinite(match.xpPerMin) ? match.xpPerMin : null,
+      killParticipation: Number(killParticipation.toFixed(1)),
+      impactScore,
+    },
+    core: {
+      heroDamage: Math.round(normalizedGpm * 40 + normalizedXpm * 5),
+      towerDamage: Math.round(normalizedGpm * 6),
+      heroHealing: Math.round(normalizedXpm * 3),
+      stunDuration: Number((normalizedKda * 4.2).toFixed(1)),
+      lastHits: Math.round(normalizedGpm * (match.durationSec / 60 / 12)),
+      denies: Math.round(normalizedGpm / 55),
+      netWorth: Math.round(normalizedGpm * (match.durationSec / 60)),
+      level: 25,
+    },
+    build: {
+      finalItems: isZh
+        ? ['核心道具 1', '核心道具 2', '保命装', '功能装', '后期道具']
+        : ['Core Item 1', 'Core Item 2', 'Defensive Item', 'Utility Item', 'Late Game Item'],
+      neutralItem: isZh ? '中立道具示例' : 'Sample Neutral Item',
+      purchaseTimeline,
+      skillBuild,
+      scepterTimeSec: 1320,
+      shardTimeSec: 1620,
+    },
+    allPlayers: mockPlayers,
+  };
 };
 
 const compareHeroes = (a, b, sortKey, sortDir, lang) => {
@@ -266,11 +474,32 @@ function App() {
   const [recentMatchesLimit, setRecentMatchesLimit] = useState(DEFAULT_RECENT_MATCH_LIMIT);
   const [sortKey, setSortKey] = useState('impact');
   const [sortDir, setSortDir] = useState('desc');
-  const [roleFilter, setRoleFilter] = useState('all');
+  const [attributeFilter, setAttributeFilter] = useState('all');
   const [minMatches, setMinMatches] = useState(0);
-  const [dashboard, setDashboard] = useState(() => createMockDashboard(getCopy('zh')));
+  const [selectedHeroRowId, setSelectedHeroRowId] = useState(null);
+  const [heroRowManuallyCollapsed, setHeroRowManuallyCollapsed] = useState(false);
+  const [dashboard, setDashboard] = useState(() => createMockDashboard(getCopy('zh'), 'zh'));
+  const [heroMetaById, setHeroMetaById] = useState(() => new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [selectedRecentMatchId, setSelectedRecentMatchId] = useState(null);
+  const [recentMatchDetail, setRecentMatchDetail] = useState(null);
+  const [recentMatchDetailLoading, setRecentMatchDetailLoading] = useState(false);
+  const [recentMatchDetailError, setRecentMatchDetailError] = useState('');
+  const selectableMatches = useMemo(() => {
+    const merged = [...(dashboard.recentMatches ?? []), ...(dashboard.windowMatches ?? [])];
+    const byMatchId = new Map();
+    merged.forEach((match) => {
+      if (match?.matchId && !byMatchId.has(match.matchId)) {
+        byMatchId.set(match.matchId, match);
+      }
+    });
+    return Array.from(byMatchId.values());
+  }, [dashboard.recentMatches, dashboard.windowMatches]);
+  const selectedRecentMatch = useMemo(
+    () => selectableMatches.find((item) => item.matchId === selectedRecentMatchId) ?? null,
+    [selectableMatches, selectedRecentMatchId]
+  );
 
   useEffect(() => {
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
@@ -300,9 +529,33 @@ function App() {
 
   useEffect(() => {
     if (dashboard.source === 'mock') {
-      setDashboard(createMockDashboard(copy));
+      setDashboard(createMockDashboard(copy, lang));
     }
-  }, [copy, dashboard.source]);
+  }, [copy, dashboard.source, lang]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const client = createOpenDotaClient(lang);
+
+    const loadHeroMeta = async () => {
+      try {
+        const map = await client.getHeroesMetaMap(controller.signal);
+        if (!controller.signal.aborted) {
+          setHeroMetaById(map);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setHeroMetaById(new Map());
+        }
+      }
+    };
+
+    loadHeroMeta();
+
+    return () => {
+      controller.abort();
+    };
+  }, [lang]);
 
   useEffect(() => {
     if (!queryAccountId) {
@@ -348,26 +601,127 @@ function App() {
     };
   }, [queryAccountId, days, reloadKey, lang, copy.errors.fetchFailed]);
 
-  const availableRoles = useMemo(() => {
-    const roleSet = new Set(dashboard.heroPerformance.map((item) => item.role).filter(Boolean));
-    return Array.from(roleSet).sort((a, b) => a.localeCompare(b, lang === 'en' ? 'en' : 'zh'));
+  useEffect(() => {
+    setSelectedRecentMatchId(null);
+    setRecentMatchDetail(null);
+    setRecentMatchDetailError('');
+    setRecentMatchDetailLoading(false);
+    setSelectedHeroRowId(null);
+    setHeroRowManuallyCollapsed(false);
+  }, [queryAccountId, days, reloadKey]);
+
+  useEffect(() => {
+    if (!selectedRecentMatchId) {
+      return;
+    }
+
+    const exists = selectableMatches.some((item) => item.matchId === selectedRecentMatchId);
+    if (!exists) {
+      setSelectedRecentMatchId(null);
+      setRecentMatchDetail(null);
+      setRecentMatchDetailError('');
+      setRecentMatchDetailLoading(false);
+    }
+  }, [selectableMatches, selectedRecentMatchId]);
+
+  useEffect(() => {
+    if (!selectedRecentMatch) {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setRecentMatchDetail(null);
+    setRecentMatchDetailError('');
+    setRecentMatchDetailLoading(true);
+
+    const load = async () => {
+      if (dashboard.source === 'mock') {
+        const mockDetail = createMockRecentMatchDetail(selectedRecentMatch, lang);
+        if (!controller.signal.aborted) {
+          setRecentMatchDetail(mockDetail);
+          setRecentMatchDetailLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const detail = await fetchRecentMatchDetail(queryAccountId, selectedRecentMatch.matchId, controller.signal, lang, {
+          heroId: selectedRecentMatch.heroId,
+          hero: selectedRecentMatch.hero,
+          heroAvatar: selectedRecentMatch.heroAvatar,
+          playerSlot: selectedRecentMatch.playerSlot,
+          startTime: selectedRecentMatch.startTime,
+          durationSec: selectedRecentMatch.durationSec,
+        });
+
+        if (!controller.signal.aborted) {
+          setRecentMatchDetail(detail);
+        }
+      } catch (loadError) {
+        if (loadError.name !== 'AbortError') {
+          setRecentMatchDetailError(loadError.message || copy.recentMatches?.detail?.loadFailed || copy.errors.fetchFailed);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setRecentMatchDetailLoading(false);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    selectedRecentMatch,
+    dashboard.source,
+    queryAccountId,
+    lang,
+    copy.recentMatches?.detail?.loadFailed,
+    copy.errors.fetchFailed,
+  ]);
+
+  const availableAttributes = useMemo(() => {
+    const attributeSet = new Set(dashboard.heroPerformance.map((item) => item.attribute).filter(Boolean));
+    return Array.from(attributeSet).sort((a, b) => a.localeCompare(b, lang === 'en' ? 'en' : 'zh'));
   }, [dashboard.heroPerformance, lang]);
 
   useEffect(() => {
-    if (roleFilter !== 'all' && !availableRoles.includes(roleFilter)) {
-      setRoleFilter('all');
+    if (attributeFilter !== 'all' && !availableAttributes.includes(attributeFilter)) {
+      setAttributeFilter('all');
     }
-  }, [availableRoles, roleFilter]);
+  }, [attributeFilter, availableAttributes]);
 
   const filteredHeroes = useMemo(() => {
     return dashboard.heroPerformance
-      .filter((hero) => (roleFilter === 'all' ? true : hero.role === roleFilter))
+      .filter((hero) => (attributeFilter === 'all' ? true : hero.attribute === attributeFilter))
       .filter((hero) => hero.matches >= minMatches)
       .slice()
       .sort((a, b) => compareHeroes(a, b, sortKey, sortDir, lang));
-  }, [dashboard.heroPerformance, lang, minMatches, roleFilter, sortDir, sortKey]);
+  }, [attributeFilter, dashboard.heroPerformance, lang, minMatches, sortDir, sortKey]);
 
-  const roleDistribution = useMemo(() => buildRoleDistribution(dashboard.heroPerformance), [dashboard.heroPerformance]);
+  useEffect(() => {
+    if (!selectedHeroRowId) {
+      return;
+    }
+    const hasSelectedHero = filteredHeroes.some((hero) => (hero.heroId ?? hero.hero) === selectedHeroRowId);
+    if (!hasSelectedHero) {
+      setSelectedHeroRowId(null);
+      setHeroRowManuallyCollapsed(false);
+    }
+  }, [filteredHeroes, selectedHeroRowId]);
+
+  useEffect(() => {
+    if (selectedHeroRowId || filteredHeroes.length === 0 || heroRowManuallyCollapsed) {
+      return;
+    }
+    const firstHero = filteredHeroes[0];
+    const firstHeroId = firstHero.heroId ?? firstHero.hero;
+    if (firstHeroId) {
+      setSelectedHeroRowId(firstHeroId);
+    }
+  }, [filteredHeroes, heroRowManuallyCollapsed, selectedHeroRowId]);
 
   const trendSummary = useMemo(() => {
     if (!dashboard.dailyWinRate.length) {
@@ -384,7 +738,146 @@ function App() {
     () => (dashboard.recentMatches ?? []).slice(0, recentMatchesLimit),
     [dashboard.recentMatches, recentMatchesLimit]
   );
+  const heroMatchesMap = useMemo(() => {
+    const grouped = new Map();
+    (dashboard.windowMatches ?? []).forEach((match) => {
+      const key = match.heroId ?? match.hero;
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.push(match);
+      } else {
+        grouped.set(key, [match]);
+      }
+    });
+    return grouped;
+  }, [dashboard.windowMatches]);
   const recentMatchSummary = useMemo(() => summarizeRecentMatches(visibleRecentMatches), [visibleRecentMatches]);
+  const catalogLocale = lang === 'en' ? 'en' : 'zh';
+  const heroCategories = useMemo(
+    () => [
+      { id: 'all', label: copy.catalog.categories.all },
+      { id: 'strength', label: copy.catalog.categories.heroStrength },
+      { id: 'agility', label: copy.catalog.categories.heroAgility },
+      { id: 'intelligence', label: copy.catalog.categories.heroIntelligence },
+      { id: 'universal', label: copy.catalog.categories.heroUniversal },
+    ],
+    [copy.catalog.categories]
+  );
+  const itemCategories = useMemo(
+    () => [
+      { id: 'all', label: copy.catalog.categories.all },
+      { id: 'consumable', label: copy.catalog.categories.itemConsumable },
+      { id: 'attribute', label: copy.catalog.categories.itemAttribute },
+      { id: 'equipment', label: copy.catalog.categories.itemEquipment },
+      { id: 'support', label: copy.catalog.categories.itemSupport },
+      { id: 'magic', label: copy.catalog.categories.itemMagic },
+      { id: 'armor', label: copy.catalog.categories.itemArmor },
+      { id: 'weapon', label: copy.catalog.categories.itemWeapon },
+    ],
+    [copy.catalog.categories]
+  );
+  const allHeroesCatalog = useMemo(() => {
+    return heroCatalog
+      .slice()
+      .sort((a, b) => (a.id ?? 0) - (b.id ?? 0))
+      .map((hero) => {
+        const heroMeta = heroMetaById.get(hero.id);
+        const primaryAttr = normalizePrimaryAttr(hero.primaryAttr ?? hero.primary_attr ?? heroMeta?.primaryAttr);
+        const label = catalogLocale === 'en' ? hero.nameEn ?? hero.nameZh ?? hero.key : hero.nameZh ?? hero.nameEn ?? hero.key;
+        const category = resolveHeroCategory(primaryAttr);
+        const categoryLabel = heroCategories.find((item) => item.id === category)?.label ?? copy.catalog.categories.all;
+        const detailFallback = copy.catalog.heroDetails.emptyValue;
+        const nameZh = hero.nameZh ?? heroMeta?.nameZh ?? '';
+        const nameEn = hero.nameEn ?? heroMeta?.nameEn ?? '';
+        const baseStr = heroMeta?.baseStr ?? hero.baseStr ?? hero.base_str;
+        const strGain = heroMeta?.strGain ?? hero.strGain ?? hero.str_gain;
+        const baseAgi = heroMeta?.baseAgi ?? hero.baseAgi ?? hero.base_agi;
+        const agiGain = heroMeta?.agiGain ?? hero.agiGain ?? hero.agi_gain;
+        const baseInt = heroMeta?.baseInt ?? hero.baseInt ?? hero.base_int;
+        const intGain = heroMeta?.intGain ?? hero.intGain ?? hero.int_gain;
+        const attackType = heroMeta?.attackType ?? hero.attackType ?? hero.attack_type ?? '';
+        const attackRange = heroMeta?.attackRange ?? hero.attackRange ?? hero.attack_range;
+        const moveSpeed = heroMeta?.moveSpeed ?? hero.moveSpeed ?? hero.move_speed;
+        const roles = heroMeta?.roles ?? hero.roles ?? [];
+        const detailRows = [
+          { key: 'nameZh', label: copy.catalog.heroDetails.nameZh, value: nameZh || detailFallback },
+          { key: 'nameEn', label: copy.catalog.heroDetails.nameEn, value: nameEn || detailFallback },
+          { key: 'attribute', label: copy.catalog.heroDetails.attribute, value: categoryLabel || detailFallback },
+          {
+            key: 'strength',
+            tone: 'strength',
+            label: copy.catalog.heroDetails.strength,
+            value: formatGrowthValue(baseStr, strGain, detailFallback),
+          },
+          {
+            key: 'agility',
+            tone: 'agility',
+            label: copy.catalog.heroDetails.agility,
+            value: formatGrowthValue(baseAgi, agiGain, detailFallback),
+          },
+          {
+            key: 'intelligence',
+            tone: 'intelligence',
+            label: copy.catalog.heroDetails.intelligence,
+            value: formatGrowthValue(baseInt, intGain, detailFallback),
+          },
+          { key: 'attackType', label: copy.catalog.heroDetails.attackType, value: attackType || detailFallback },
+          { key: 'attackRange', label: copy.catalog.heroDetails.attackRange, value: formatNumberValue(attackRange, detailFallback) },
+          { key: 'moveSpeed', label: copy.catalog.heroDetails.moveSpeed, value: formatNumberValue(moveSpeed, detailFallback) },
+          { key: 'roles', label: copy.catalog.heroDetails.roles, value: formatRolesValue(roles, detailFallback) },
+        ];
+        const fallback = String(label ?? '')
+          .replace(/\s+/g, '')
+          .slice(0, 2)
+          .toUpperCase();
+        return {
+          key: `hero-${hero.id}-${hero.key}`,
+          label: label || `Hero #${hero.id}`,
+          nameZh,
+          nameEn,
+          attributeLabel: categoryLabel,
+          meta: `#${hero.id} · ${hero.key}`,
+          description: copy.catalog.heroDescription({ attribute: categoryLabel }),
+          detailRows,
+          category,
+          categoryLabel,
+          icon: hero.avatar ?? '',
+          fallback: fallback || 'H',
+        };
+      });
+  }, [catalogLocale, copy.catalog, heroCategories, heroMetaById]);
+  const allItemsCatalog = useMemo(() => {
+    const unknownIdLabel = copy.catalog.unknownId;
+    return itemCatalog
+      .slice()
+      .sort((a, b) => {
+        const idA = Number.isFinite(a.id) ? a.id : Number.MAX_SAFE_INTEGER;
+        const idB = Number.isFinite(b.id) ? b.id : Number.MAX_SAFE_INTEGER;
+        if (idA !== idB) {
+          return idA - idB;
+        }
+        return String(a.key ?? '').localeCompare(String(b.key ?? ''), catalogLocale);
+      })
+      .map((item) => {
+        const label = catalogLocale === 'en' ? item.nameEn ?? item.nameZh ?? item.key : item.nameZh ?? item.nameEn ?? item.key;
+        const category = resolveItemCategory(item.key);
+        const fallback = String(label ?? '')
+          .replace(/\s+/g, '')
+          .slice(0, 2)
+          .toUpperCase();
+        const itemId = Number.isFinite(item.id) ? `#${item.id}` : unknownIdLabel;
+        return {
+          key: `item-${item.id ?? 'na'}-${item.key}`,
+          label: label || item.key,
+          meta: `${itemId} · ${item.key}`,
+          description: copy.catalog.itemDescription({ id: item.id, key: item.key }),
+          category,
+          categoryLabel: itemCategories.find((entry) => entry.id === category)?.label ?? copy.catalog.categories.itemEquipment,
+          icon: item.icon ?? '',
+          fallback: fallback || 'I',
+        };
+      });
+  }, [catalogLocale, copy.catalog, itemCategories]);
 
   const switchToAccount = (account, forceRefresh = false) => {
     setInputIdType(account.idType);
@@ -479,10 +972,19 @@ function App() {
 
     const header = copy.table.headers;
     const rows = [
-      [header.hero, header.role, header.matches, header.winRate, header.avgKda, header.avgGpm, header.avgXpm, header.impact],
+      [
+        header.hero,
+        header.attribute,
+        header.matches,
+        header.winRate,
+        header.avgKda,
+        header.avgGpm,
+        header.avgXpm,
+        header.impact,
+      ],
       ...filteredHeroes.map((hero) => [
         hero.hero,
-        hero.role,
+        hero.attribute,
         hero.matches,
         `${((hero.wins / Math.max(1, hero.matches)) * 100).toFixed(1)}%`,
         hero.avgKda,
@@ -504,12 +1006,54 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
+  const handleOpenRecentMatchDetail = (match) => {
+    if (!match?.matchId) {
+      return;
+    }
+    setSelectedRecentMatchId(match.matchId);
+  };
+
+  const handleSelectHeroRow = (hero) => {
+    if (!hero) {
+      return;
+    }
+    const rowId = hero.heroId ?? hero.hero;
+    if (selectedHeroRowId === rowId) {
+      setSelectedHeroRowId(null);
+      setHeroRowManuallyCollapsed(true);
+      return;
+    }
+    setSelectedHeroRowId(rowId);
+    setHeroRowManuallyCollapsed(false);
+  };
+
+  const handleCloseRecentMatchDetail = () => {
+    setSelectedRecentMatchId(null);
+    setRecentMatchDetail(null);
+    setRecentMatchDetailError('');
+    setRecentMatchDetailLoading(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === TAB_IDS.recentMatches || activeTab === TAB_IDS.heroes) {
+      return;
+    }
+    if (selectedRecentMatchId) {
+      setSelectedRecentMatchId(null);
+      setRecentMatchDetail(null);
+      setRecentMatchDetailError('');
+      setRecentMatchDetailLoading(false);
+    }
+  }, [activeTab, selectedRecentMatchId]);
+
   const tabItems = [
     { id: TAB_IDS.recentMatches, label: copy.tabs.recentMatches },
     { id: TAB_IDS.heroes, label: copy.tabs.heroes },
     { id: TAB_IDS.trend, label: copy.tabs.trend },
     { id: TAB_IDS.rankRole, label: copy.tabs.rankRole },
     { id: TAB_IDS.overview, label: copy.tabs.overview },
+    { id: TAB_IDS.allHeroes, label: copy.tabs.allHeroes, rightGroup: true },
+    { id: TAB_IDS.allItems, label: copy.tabs.allItems },
   ];
 
   const statusLine = error
@@ -541,7 +1085,6 @@ function App() {
   const mostPlayedHero = dashboard.metrics.mostPlayedHero;
   const bestHeroAvgGpm = Number.isFinite(bestHero.avgGpm) ? bestHero.avgGpm : copy.recentMatches.emptyValue;
   const worstHeroAvgGpm = Number.isFinite(worstHero.avgGpm) ? worstHero.avgGpm : copy.recentMatches.emptyValue;
-  const topRole = roleDistribution[0]?.role;
   const activeAccount = savedAccounts.find(
     (account) => account.accountId === queryAccountId && account.rawId === queryRawId && account.idType === queryIdType
   );
@@ -552,7 +1095,6 @@ function App() {
       totalMatches: dashboard.metrics.totalMatches,
     }),
     copy.overview.insightBestHero(bestHero.hero),
-    topRole ? copy.overview.insightTopRole(topRole) : copy.overview.insightTopRoleFallback,
   ];
 
   return (
@@ -717,7 +1259,7 @@ function App() {
                 id={`tab-${item.id}`}
                 role="tab"
                 type="button"
-                className={`tab-btn ${activeTab === item.id ? 'is-active' : ''}`}
+                className={`tab-btn ${activeTab === item.id ? 'is-active' : ''} ${item.rightGroup ? 'is-right-group' : ''}`}
                 aria-selected={activeTab === item.id}
                 aria-controls={`panel-${item.id}`}
                 onClick={() => setActiveTab(item.id)}
@@ -796,13 +1338,20 @@ function App() {
           <section id={`panel-${TAB_IDS.heroes}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.heroes}`} className="tab-content">
             <HeroPerformanceTable
               heroes={filteredHeroes}
-              roles={availableRoles}
-              controls={{ sortKey, sortDir, roleFilter, minMatches }}
+              attributes={availableAttributes}
+              controls={{ sortKey, sortDir, attributeFilter, minMatches }}
               onSortKeyChange={setSortKey}
               onSortDirChange={setSortDir}
-              onRoleFilterChange={setRoleFilter}
+              onAttributeFilterChange={setAttributeFilter}
               onMinMatchesChange={handleMinMatchesChange}
               onExport={handleExportHeroes}
+              heroMatchesMap={heroMatchesMap}
+              selectedHeroId={selectedHeroRowId}
+              onSelectHero={handleSelectHeroRow}
+              selectedMatchId={selectedRecentMatchId}
+              onSelectMatch={handleOpenRecentMatchDetail}
+              recentCopy={copy.recentMatches}
+              lang={lang}
               copy={copy.table}
             />
           </section>
@@ -838,9 +1387,8 @@ function App() {
             aria-labelledby={`tab-${TAB_IDS.rankRole}`}
             className="tab-content"
           >
-            <section className="two-cols">
+            <section>
               <RankDistribution items={dashboard.rankDistribution} days={days} copy={copy.rank} />
-              <RoleDistribution items={roleDistribution} days={days} copy={copy.role} />
             </section>
           </section>
         ) : null}
@@ -860,10 +1408,51 @@ function App() {
               limit={recentMatchesLimit}
               options={RECENT_MATCH_OPTIONS}
               onLimitChange={setRecentMatchesLimit}
+              selectedMatchId={selectedRecentMatchId}
+              onSelectMatch={handleOpenRecentMatchDetail}
+            />
+          </section>
+        ) : null}
+
+        {activeTab === TAB_IDS.allHeroes ? (
+          <section id={`panel-${TAB_IDS.allHeroes}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.allHeroes}`} className="tab-content">
+            <CatalogListPanel
+              title={copy.catalog.heroesTitle}
+              tag={copy.catalog.heroesTag(allHeroesCatalog.length)}
+              items={allHeroesCatalog}
+              emptyText={copy.catalog.heroesEmpty}
+              iconVariant="hero"
+              categories={heroCategories}
+              allCategoryLabel={copy.catalog.categories.all}
+            />
+          </section>
+        ) : null}
+
+        {activeTab === TAB_IDS.allItems ? (
+          <section id={`panel-${TAB_IDS.allItems}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.allItems}`} className="tab-content">
+            <CatalogListPanel
+              title={copy.catalog.itemsTitle}
+              tag={copy.catalog.itemsTag(allItemsCatalog.length)}
+              items={allItemsCatalog}
+              emptyText={copy.catalog.itemsEmpty}
+              iconVariant="item"
+              categories={itemCategories}
+              allCategoryLabel={copy.catalog.categories.all}
             />
           </section>
         ) : null}
       </main>
+
+      <RecentMatchDetailDrawer
+        open={Boolean(selectedRecentMatchId)}
+        copy={copy.recentMatches}
+        lang={lang}
+        match={selectedRecentMatch}
+        detail={recentMatchDetail}
+        loading={recentMatchDetailLoading}
+        error={recentMatchDetailError}
+        onClose={handleCloseRecentMatchDetail}
+      />
     </div>
   );
 }

@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "sync:heroes": "node scripts/syncHeroes.mjs"
+    "sync:heroes": "node scripts/syncHeroes.mjs",
+    "sync:items": "node scripts/syncItems.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
