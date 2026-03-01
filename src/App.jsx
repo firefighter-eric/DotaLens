@@ -14,6 +14,7 @@ const MAX_UINT32 = 4294967295n;
 const DEFAULT_STEAM32_ID = '898754153';
 const DEFAULT_SAMPLE_PLAYER_NAME = getCopy('zh').misc.samplePlayerName;
 const MAX_SAVED_ACCOUNTS = 5;
+const ACCOUNT_STORAGE_KEY = 'dotalens.accounts.v1';
 const RECENT_MATCH_OPTIONS = [10, 20, 30];
 const DEFAULT_RECENT_MATCH_LIMIT = 10;
 const TAB_IDS = {
@@ -142,24 +143,120 @@ const escapeCsvCell = (value) => {
 
 const isSameAccount = (a, b) => a.accountId === b.accountId && a.rawId === b.rawId && a.idType === b.idType;
 
+const createDefaultAccount = () => ({
+  idType: 'steam',
+  rawId: DEFAULT_STEAM32_ID,
+  accountId: DEFAULT_STEAM32_ID,
+  nickname: DEFAULT_SAMPLE_PLAYER_NAME,
+});
+
+const sanitizePersistedAccount = (value) => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const idType = value.idType === 'steam' || value.idType === 'opendota' ? value.idType : null;
+  const rawId = typeof value.rawId === 'string' ? value.rawId.trim() : '';
+  const accountId = typeof value.accountId === 'string' ? value.accountId.trim() : '';
+  const nickname = typeof value.nickname === 'string' ? value.nickname.trim() : '';
+
+  if (!idType || !rawId || !accountId || !/^\d+$/.test(rawId) || !/^\d+$/.test(accountId)) {
+    return null;
+  }
+
+  return {
+    idType,
+    rawId,
+    accountId,
+    nickname: nickname || rawId,
+  };
+};
+
+const sanitizePersistedAccounts = (value) => {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const seen = new Set();
+  const accounts = [];
+  for (const item of value) {
+    const account = sanitizePersistedAccount(item);
+    if (!account) {
+      continue;
+    }
+
+    const key = `${account.idType}:${account.rawId}:${account.accountId}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    accounts.push(account);
+
+    if (accounts.length >= MAX_SAVED_ACCOUNTS) {
+      break;
+    }
+  }
+
+  return accounts.length ? accounts : null;
+};
+
+const createDefaultSession = () => {
+  const defaultAccount = createDefaultAccount();
+  return {
+    inputAccountId: defaultAccount.rawId,
+    inputIdType: defaultAccount.idType,
+    savedAccounts: [defaultAccount],
+    queryAccountId: defaultAccount.accountId,
+    queryRawId: defaultAccount.rawId,
+    queryIdType: defaultAccount.idType,
+  };
+};
+
+const loadSessionFromStorage = () => {
+  const fallback = createDefaultSession();
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(ACCOUNT_STORAGE_KEY);
+    if (!raw) {
+      return fallback;
+    }
+
+    const parsed = JSON.parse(raw);
+    const savedAccounts = sanitizePersistedAccounts(parsed?.savedAccounts) ?? fallback.savedAccounts;
+    const persistedActive = sanitizePersistedAccount(parsed?.activeAccount);
+    const activeAccount =
+      persistedActive && savedAccounts.some((item) => isSameAccount(item, persistedActive))
+        ? persistedActive
+        : savedAccounts[0];
+
+    return {
+      inputAccountId: activeAccount.rawId,
+      inputIdType: activeAccount.idType,
+      savedAccounts,
+      queryAccountId: activeAccount.accountId,
+      queryRawId: activeAccount.rawId,
+      queryIdType: activeAccount.idType,
+    };
+  } catch {
+    return fallback;
+  }
+};
+
 function App() {
   const [lang, setLang] = useState('zh');
   const copy = useMemo(() => getCopy(lang), [lang]);
 
-  const [inputAccountId, setInputAccountId] = useState(DEFAULT_STEAM32_ID);
-  const [inputIdType, setInputIdType] = useState('steam');
-  const [savedAccounts, setSavedAccounts] = useState(() => [
-    {
-      idType: 'steam',
-      rawId: DEFAULT_STEAM32_ID,
-      accountId: DEFAULT_STEAM32_ID,
-      nickname: DEFAULT_SAMPLE_PLAYER_NAME,
-    },
-  ]);
+  const [sessionSeed] = useState(() => loadSessionFromStorage());
+  const [inputAccountId, setInputAccountId] = useState(sessionSeed.inputAccountId);
+  const [inputIdType, setInputIdType] = useState(sessionSeed.inputIdType);
+  const [savedAccounts, setSavedAccounts] = useState(sessionSeed.savedAccounts);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
-  const [queryAccountId, setQueryAccountId] = useState(DEFAULT_STEAM32_ID);
-  const [queryRawId, setQueryRawId] = useState(DEFAULT_STEAM32_ID);
-  const [queryIdType, setQueryIdType] = useState('steam');
+  const [queryAccountId, setQueryAccountId] = useState(sessionSeed.queryAccountId);
+  const [queryRawId, setQueryRawId] = useState(sessionSeed.queryRawId);
+  const [queryIdType, setQueryIdType] = useState(sessionSeed.queryIdType);
   const [reloadKey, setReloadKey] = useState(0);
   const [days, setDays] = useState(14);
   const [activeTab, setActiveTab] = useState(TAB_IDS.overview);
@@ -175,6 +272,28 @@ function App() {
   useEffect(() => {
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
   }, [lang]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        ACCOUNT_STORAGE_KEY,
+        JSON.stringify({
+          savedAccounts,
+          activeAccount: {
+            idType: queryIdType,
+            rawId: queryRawId,
+            accountId: queryAccountId,
+          },
+        })
+      );
+    } catch {
+      // Ignore localStorage write failures (for example, privacy mode restrictions).
+    }
+  }, [savedAccounts, queryAccountId, queryRawId, queryIdType]);
 
   useEffect(() => {
     if (dashboard.source === 'mock') {
