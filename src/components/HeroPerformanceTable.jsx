@@ -58,7 +58,8 @@ const fallbackRecentCopy = {
   timeTags: {
     today: '今天',
     yesterday: '昨天',
-    thisWeek: '本周',
+    within7Days: '7天内',
+    within30Days: '30天内',
   },
   emptyValue: '-',
 };
@@ -97,13 +98,6 @@ const formatNumber = (value, locale, fallback) => {
 
 const getDayStartMs = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 
-const getWeekStartMs = (date) => {
-  const weekStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const dayOffset = (weekStart.getDay() + 6) % 7;
-  weekStart.setDate(weekStart.getDate() - dayOffset);
-  return weekStart.getTime();
-};
-
 const resolveMatchTimeTag = (startTime, boundaries, labels) => {
   if (!startTime || !labels) {
     return null;
@@ -115,14 +109,21 @@ const resolveMatchTimeTag = (startTime, boundaries, labels) => {
   }
 
   const matchDayStartMs = getDayStartMs(new Date(startMs));
+  const diffDays = Math.floor((boundaries.todayStartMs - matchDayStartMs) / DAY_MS);
+  if (!Number.isFinite(diffDays) || diffDays < 0) {
+    return null;
+  }
   if (matchDayStartMs === boundaries.todayStartMs) {
     return { key: 'today', label: labels.today };
   }
   if (matchDayStartMs === boundaries.yesterdayStartMs) {
     return { key: 'yesterday', label: labels.yesterday };
   }
-  if (matchDayStartMs >= boundaries.weekStartMs && matchDayStartMs < boundaries.yesterdayStartMs) {
-    return { key: 'thisWeek', label: labels.thisWeek };
+  if (diffDays <= 7) {
+    return { key: 'within7Days', label: labels.within7Days };
+  }
+  if (diffDays <= 30) {
+    return { key: 'within30Days', label: labels.within30Days };
   }
 
   return null;
@@ -173,7 +174,6 @@ function HeroPerformanceTable({
   const timeBoundaries = {
     todayStartMs: getDayStartMs(now),
     yesterdayStartMs: getDayStartMs(now) - DAY_MS,
-    weekStartMs: getWeekStartMs(now),
   };
 
   return (

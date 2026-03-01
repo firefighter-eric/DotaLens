@@ -19,8 +19,9 @@ const DEFAULT_STEAM32_ID = '898754153';
 const DEFAULT_SAMPLE_PLAYER_NAME = getCopy('zh').misc.samplePlayerName;
 const MAX_SAVED_ACCOUNTS = 5;
 const ACCOUNT_STORAGE_KEY = 'dotalens.accounts.v1';
-const RECENT_MATCH_OPTIONS = [10, 20, 30];
-const DEFAULT_RECENT_MATCH_LIMIT = 10;
+const RECENT_MATCHES_PAGE_SIZE = 30;
+const SUPPORTED_TIME_WINDOWS = [30, 365];
+const DEFAULT_TIME_WINDOW = 30;
 const TAB_IDS = {
   overview: 'overview',
   heroes: 'heroes',
@@ -423,6 +424,11 @@ const sanitizePersistedAccounts = (value) => {
   return accounts.length ? accounts : null;
 };
 
+const sanitizePersistedDays = (value) => {
+  const parsed = Number(value);
+  return SUPPORTED_TIME_WINDOWS.includes(parsed) ? parsed : null;
+};
+
 const createDefaultSession = () => {
   const defaultAccount = createDefaultAccount();
   return {
@@ -432,6 +438,7 @@ const createDefaultSession = () => {
     queryAccountId: defaultAccount.accountId,
     queryRawId: defaultAccount.rawId,
     queryIdType: defaultAccount.idType,
+    days: DEFAULT_TIME_WINDOW,
   };
 };
 
@@ -450,6 +457,7 @@ const loadSessionFromStorage = () => {
     const parsed = JSON.parse(raw);
     const savedAccounts = sanitizePersistedAccounts(parsed?.savedAccounts) ?? fallback.savedAccounts;
     const persistedActive = sanitizePersistedAccount(parsed?.activeAccount);
+    const days = sanitizePersistedDays(parsed?.days) ?? fallback.days;
     const activeAccount =
       persistedActive && savedAccounts.some((item) => isSameAccount(item, persistedActive))
         ? persistedActive
@@ -462,6 +470,7 @@ const loadSessionFromStorage = () => {
       queryAccountId: activeAccount.accountId,
       queryRawId: activeAccount.rawId,
       queryIdType: activeAccount.idType,
+      days,
     };
   } catch {
     return fallback;
@@ -481,9 +490,9 @@ function App() {
   const [queryRawId, setQueryRawId] = useState(sessionSeed.queryRawId);
   const [queryIdType, setQueryIdType] = useState(sessionSeed.queryIdType);
   const [reloadKey, setReloadKey] = useState(0);
-  const [days, setDays] = useState(14);
+  const [days, setDays] = useState(sessionSeed.days);
   const [activeTab, setActiveTab] = useState(TAB_IDS.recentMatches);
-  const [recentMatchesLimit, setRecentMatchesLimit] = useState(DEFAULT_RECENT_MATCH_LIMIT);
+  const [recentMatchesPage, setRecentMatchesPage] = useState(1);
   const [sortKey, setSortKey] = useState('impact');
   const [sortDir, setSortDir] = useState('desc');
   const [attributeFilter, setAttributeFilter] = useState('all');
@@ -532,12 +541,13 @@ function App() {
             rawId: queryRawId,
             accountId: queryAccountId,
           },
+          days,
         })
       );
     } catch {
       // Ignore localStorage write failures (for example, privacy mode restrictions).
     }
-  }, [savedAccounts, queryAccountId, queryRawId, queryIdType]);
+  }, [savedAccounts, queryAccountId, queryRawId, queryIdType, days]);
 
   useEffect(() => {
     if (dashboard.source === 'mock') {
@@ -621,6 +631,7 @@ function App() {
     setRecentMatchDetailLoading(false);
     setSelectedHeroRowId(null);
     setHeroRowManuallyCollapsed(false);
+    setRecentMatchesPage(1);
   }, [queryAccountId, days, reloadKey]);
 
   useEffect(() => {
@@ -749,10 +760,18 @@ function App() {
       bottom: Math.min(...values),
     };
   }, [dashboard.dailyWinRate]);
-  const visibleRecentMatches = useMemo(
-    () => (dashboard.recentMatches ?? []).slice(0, recentMatchesLimit),
-    [dashboard.recentMatches, recentMatchesLimit]
-  );
+  const paginatedRecentMatches = useMemo(() => dashboard.windowMatches ?? [], [dashboard.windowMatches]);
+  const recentMatchesTotalPages = Math.max(1, Math.ceil(paginatedRecentMatches.length / RECENT_MATCHES_PAGE_SIZE));
+  const clampedRecentMatchesPage = Math.min(recentMatchesPage, recentMatchesTotalPages);
+  const visibleRecentMatches = useMemo(() => {
+    const start = (clampedRecentMatchesPage - 1) * RECENT_MATCHES_PAGE_SIZE;
+    return paginatedRecentMatches.slice(start, start + RECENT_MATCHES_PAGE_SIZE);
+  }, [clampedRecentMatchesPage, paginatedRecentMatches]);
+  useEffect(() => {
+    if (recentMatchesPage !== clampedRecentMatchesPage) {
+      setRecentMatchesPage(clampedRecentMatchesPage);
+    }
+  }, [recentMatchesPage, clampedRecentMatchesPage]);
   const heroMatchesMap = useMemo(() => {
     const grouped = new Map();
     (dashboard.windowMatches ?? []).forEach((match) => {
@@ -1261,17 +1280,6 @@ function App() {
                 })}
               </div>
               <div className="range-switch" role="group" aria-label={copy.query.rangeAriaLabel}>
-                <button type="button" className={days === 7 ? 'is-active' : ''} onClick={() => setDays(7)} disabled={loading}>
-                  {copy.query.day7}
-                </button>
-                <button
-                  type="button"
-                  className={days === 14 ? 'is-active' : ''}
-                  onClick={() => setDays(14)}
-                  disabled={loading}
-                >
-                  {copy.query.day14}
-                </button>
                 <button
                   type="button"
                   className={days === 30 ? 'is-active' : ''}
@@ -1279,6 +1287,14 @@ function App() {
                   disabled={loading}
                 >
                   {copy.query.day30}
+                </button>
+                <button
+                  type="button"
+                  className={days === 365 ? 'is-active' : ''}
+                  onClick={() => setDays(365)}
+                  disabled={loading}
+                >
+                  {copy.query.day365}
                 </button>
               </div>
             </form>
@@ -1441,9 +1457,11 @@ function App() {
               summary={recentMatchSummary}
               copy={copy.recentMatches}
               lang={lang}
-              limit={recentMatchesLimit}
-              options={RECENT_MATCH_OPTIONS}
-              onLimitChange={setRecentMatchesLimit}
+              page={clampedRecentMatchesPage}
+              pageSize={RECENT_MATCHES_PAGE_SIZE}
+              totalCount={paginatedRecentMatches.length}
+              totalPages={recentMatchesTotalPages}
+              onPageChange={setRecentMatchesPage}
               selectedMatchId={selectedRecentMatchId}
               onSelectMatch={handleOpenRecentMatchDetail}
             />

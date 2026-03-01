@@ -1,7 +1,10 @@
 const fallbackCopy = {
   title: (count) => `最近 ${count} 场详细分析`,
   tag: (count) => `最近 ${count} 场`,
-  limitAriaLabel: '最近比赛场次',
+  paginationAriaLabel: '最近比赛分页',
+  pageIndicator: (page, totalPages, start, end, totalCount) => `第 ${page}/${totalPages} 页 · ${start}-${end} / ${totalCount}`,
+  prevPage: '上一页',
+  nextPage: '下一页',
   noDataText: '暂无最近比赛数据。',
   openHint: '点击任意一行查看详情',
   summary: {
@@ -29,7 +32,8 @@ const fallbackCopy = {
   timeTags: {
     today: '今天',
     yesterday: '昨天',
-    thisWeek: '本周',
+    within7Days: '7天内',
+    within30Days: '30天内',
   },
   emptyValue: '-',
 };
@@ -68,13 +72,6 @@ const formatNumber = (value, locale, fallback) => {
 
 const getDayStartMs = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 
-const getWeekStartMs = (date) => {
-  const weekStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const dayOffset = (weekStart.getDay() + 6) % 7;
-  weekStart.setDate(weekStart.getDate() - dayOffset);
-  return weekStart.getTime();
-};
-
 const resolveMatchTimeTag = (startTime, boundaries, labels) => {
   if (!startTime || !labels) {
     return null;
@@ -86,14 +83,21 @@ const resolveMatchTimeTag = (startTime, boundaries, labels) => {
   }
 
   const matchDayStartMs = getDayStartMs(new Date(startMs));
+  const diffDays = Math.floor((boundaries.todayStartMs - matchDayStartMs) / DAY_MS);
+  if (!Number.isFinite(diffDays) || diffDays < 0) {
+    return null;
+  }
   if (matchDayStartMs === boundaries.todayStartMs) {
     return { key: 'today', label: labels.today };
   }
   if (matchDayStartMs === boundaries.yesterdayStartMs) {
     return { key: 'yesterday', label: labels.yesterday };
   }
-  if (matchDayStartMs >= boundaries.weekStartMs && matchDayStartMs < boundaries.yesterdayStartMs) {
-    return { key: 'thisWeek', label: labels.thisWeek };
+  if (diffDays <= 7) {
+    return { key: 'within7Days', label: labels.within7Days };
+  }
+  if (diffDays <= 30) {
+    return { key: 'within30Days', label: labels.within30Days };
   }
 
   return null;
@@ -104,9 +108,11 @@ function RecentMatchesPanel({
   summary,
   copy = fallbackCopy,
   lang = 'zh',
-  limit = 10,
-  options = [10, 20, 30],
-  onLimitChange,
+  page = 1,
+  pageSize = 30,
+  totalCount = 0,
+  totalPages = 1,
+  onPageChange,
   selectedMatchId = null,
   onSelectMatch,
 }) {
@@ -118,13 +124,20 @@ function RecentMatchesPanel({
     avgDurationMin: 0,
   };
   const avgGpmValue = Number.isFinite(safeSummary.avgGpm) ? safeSummary.avgGpm : copy.emptyValue;
-  const title = typeof copy.title === 'function' ? copy.title(limit) : copy.title;
+  const title = typeof copy.title === 'function' ? copy.title(totalCount) : copy.title;
+  const safePage = Math.max(1, Math.min(page, totalPages));
+  const hasMatches = matches.length > 0;
+  const pageStart = hasMatches ? (safePage - 1) * pageSize + 1 : 0;
+  const pageEnd = hasMatches ? pageStart + matches.length - 1 : 0;
+  const pageIndicator =
+    typeof copy.pageIndicator === 'function'
+      ? copy.pageIndicator(safePage, totalPages, pageStart, pageEnd, totalCount)
+      : `${safePage}/${totalPages}`;
   const timeTags = copy.timeTags ?? fallbackCopy.timeTags;
   const now = new Date();
   const timeBoundaries = {
     todayStartMs: getDayStartMs(now),
     yesterdayStartMs: getDayStartMs(now) - DAY_MS,
-    weekStartMs: getWeekStartMs(now),
   };
 
   return (
@@ -132,25 +145,25 @@ function RecentMatchesPanel({
       <div className="panel-header recent-panel-header">
         <h2>{title}</h2>
         <div className="recent-panel-actions">
-          <span className="panel-tag">{copy.tag(matches.length)}</span>
+          <span className="panel-tag">{copy.tag(totalCount)}</span>
           <span className="panel-tag panel-tag--subtle">{copy.openHint || fallbackCopy.openHint}</span>
-          <div className="range-switch recent-limit-switch" role="group" aria-label={copy.limitAriaLabel}>
-            {options.map((option) => (
-              <button
-                key={option}
-                type="button"
-                className={limit === option ? 'is-active' : ''}
-                onClick={() => onLimitChange?.(option)}
-                disabled={!onLimitChange}
-              >
-                {option}
-              </button>
-            ))}
+          <div className="range-switch recent-limit-switch" role="group" aria-label={copy.paginationAriaLabel}>
+            <button type="button" onClick={() => onPageChange?.(safePage - 1)} disabled={!onPageChange || safePage <= 1}>
+              {copy.prevPage}
+            </button>
+            <span className="recent-page-indicator">{pageIndicator}</span>
+            <button
+              type="button"
+              onClick={() => onPageChange?.(safePage + 1)}
+              disabled={!onPageChange || safePage >= totalPages}
+            >
+              {copy.nextPage}
+            </button>
           </div>
         </div>
       </div>
 
-      {matches.length > 0 ? (
+      {hasMatches ? (
         <>
           <div className="recent-summary-grid">
             <div className="recent-summary-item">

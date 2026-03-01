@@ -21,6 +21,8 @@ const PLAYER_MATCH_PROJECT_FIELDS = [
   'gold_per_min',
   'xp_per_min',
 ];
+const PLAYER_MATCH_PAGE_LIMIT = 500;
+const PLAYER_MATCH_MAX_PAGES = 40;
 
 const requestLocaleConfig = {
   zh: {
@@ -70,6 +72,20 @@ const fetchJson = async (path, signal, locale) => {
 };
 
 const toArray = (value) => (Array.isArray(value) ? value : []);
+const dedupeMatchesById = (matches) => {
+  const byId = new Map();
+  toArray(matches).forEach((match) => {
+    const matchId = Number(match?.match_id);
+    if (Number.isFinite(matchId) && matchId > 0) {
+      if (!byId.has(matchId)) {
+        byId.set(matchId, match);
+      }
+      return;
+    }
+    byId.set(`row-${byId.size}`, match);
+  });
+  return Array.from(byId.values());
+};
 const toFiniteOrNull = (value) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
@@ -212,12 +228,28 @@ export const createOpenDotaClient = (lang = 'zh') => {
     getPlayerMatchesByDays: async (accountId, days, signal) => {
       const safeDays = toPositiveInt(days, 14);
       const projectQuery = PLAYER_MATCH_PROJECT_FIELDS.map((field) => `project=${field}`).join('&');
+      const fetchWindowMatches = async (withProjectFields) => {
+        const all = [];
+        for (let page = 0; page < PLAYER_MATCH_MAX_PAGES; page += 1) {
+          const offset = page * PLAYER_MATCH_PAGE_LIMIT;
+          const baseQuery = `date=${safeDays}&significant=0&limit=${PLAYER_MATCH_PAGE_LIMIT}&offset=${offset}`;
+          const query = withProjectFields ? `${baseQuery}&${projectQuery}` : baseQuery;
+          const pageMatches = toArray(await fetchJson(`/players/${accountId}/matches?${query}`, signal, locale));
+          if (pageMatches.length === 0) {
+            break;
+          }
+          all.push(...pageMatches);
+          if (pageMatches.length < PLAYER_MATCH_PAGE_LIMIT) {
+            break;
+          }
+        }
+        return dedupeMatchesById(all);
+      };
+
       try {
-        const matches = await fetchJson(`/players/${accountId}/matches?date=${safeDays}&significant=0&${projectQuery}`, signal, locale);
-        return toArray(matches);
+        return await fetchWindowMatches(true);
       } catch {
-        const matches = await fetchJson(`/players/${accountId}/matches?date=${safeDays}&significant=0`, signal, locale);
-        return toArray(matches);
+        return fetchWindowMatches(false);
       }
     },
     getPlayerLatestMatches: async (accountId, limit, signal) => {
