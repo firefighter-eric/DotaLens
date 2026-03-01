@@ -259,7 +259,7 @@ function App() {
   const [queryIdType, setQueryIdType] = useState(sessionSeed.queryIdType);
   const [reloadKey, setReloadKey] = useState(0);
   const [days, setDays] = useState(14);
-  const [activeTab, setActiveTab] = useState(TAB_IDS.overview);
+  const [activeTab, setActiveTab] = useState(TAB_IDS.recentMatches);
   const [recentMatchesLimit, setRecentMatchesLimit] = useState(DEFAULT_RECENT_MATCH_LIMIT);
   const [sortKey, setSortKey] = useState('impact');
   const [sortDir, setSortDir] = useState('desc');
