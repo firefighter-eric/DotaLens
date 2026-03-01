@@ -1,8 +1,8 @@
 const fallbackCopy = {
   title: (count) => `最近 ${count} 场详细分析`,
   tag: (count) => `最近 ${count} 场`,
-  limitAriaLabel: '最近对局场次',
-  noDataText: '暂无最近对局数据。',
+  limitAriaLabel: '最近比赛场次',
+  noDataText: '暂无最近比赛数据。',
   openHint: '点击任意一行查看详情',
   summary: {
     winRate: '胜率',
@@ -20,7 +20,7 @@ const fallbackCopy = {
     heroDamage: '英雄伤害',
     duration: '时长',
     rank: '段位',
-    matchId: '对局 ID',
+    matchId: '比赛 ID',
   },
   result: {
     win: '胜利',

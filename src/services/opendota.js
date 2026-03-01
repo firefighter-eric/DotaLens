@@ -5,6 +5,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const RECENT_MATCH_FETCH_LIMIT = 30;
 const ITEM_SLOTS = [0, 1, 2, 3, 4, 5];
 const SKILL_BUILD_LIMIT = 18;
+const MATCH_DETAIL_PLAYER_PROFILE_LIMIT = 10;
 
 const localeConfig = {
   zh: {
@@ -130,6 +131,11 @@ const toArray = (value) => (Array.isArray(value) ? value : []);
 const toFiniteOrNull = (value) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
+};
+const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
+const normalizeAccountId = (value) => {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
 const isMatchWin = (match) => {
@@ -322,6 +328,110 @@ const resolvePlayerAvatar = (player, fallback = '') => {
   ];
   const hit = candidates.find((value) => typeof value === 'string' && value.trim());
   return hit ? hit.trim() : fallback;
+};
+
+const extractPlayerProfile = (rawPlayer) => {
+  if (!rawPlayer || typeof rawPlayer !== 'object') {
+    return null;
+  }
+
+  const profile = rawPlayer.profile && typeof rawPlayer.profile === 'object' ? rawPlayer.profile : rawPlayer;
+  const personaname = [profile.personaname, rawPlayer.personaname, rawPlayer.name].find(isNonEmptyString)?.trim() ?? '';
+  const avatarfull = [profile.avatarfull, rawPlayer.avatarfull].find(isNonEmptyString)?.trim() ?? '';
+  const avatarmedium = [profile.avatarmedium, rawPlayer.avatarmedium].find(isNonEmptyString)?.trim() ?? '';
+  const avatar = [profile.avatar, rawPlayer.avatar].find(isNonEmptyString)?.trim() ?? '';
+
+  if (!personaname && !avatarfull && !avatarmedium && !avatar) {
+    return null;
+  }
+
+  return {
+    personaname,
+    avatarfull,
+    avatarmedium,
+    avatar,
+  };
+};
+
+const hydrateMatchPlayersProfile = async (players, client, signal) => {
+  const candidateIds = [];
+  const seen = new Set();
+
+  players.forEach((entry) => {
+    const accountId = normalizeAccountId(entry?.account_id);
+    if (accountId == null || seen.has(accountId)) {
+      return;
+    }
+    seen.add(accountId);
+
+    if (resolvePlayerAvatar(entry)) {
+      return;
+    }
+    candidateIds.push(accountId);
+  });
+
+  if (candidateIds.length === 0) {
+    return players;
+  }
+
+  const accountIds = candidateIds.slice(0, MATCH_DETAIL_PLAYER_PROFILE_LIMIT);
+  const profileByAccountId = new Map();
+
+  const requests = accountIds.map(async (accountId) => {
+    try {
+      const player = await client.getPlayer(accountId, signal);
+      return [accountId, extractPlayerProfile(player)];
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw error;
+      }
+      return [accountId, null];
+    }
+  });
+
+  const loadedProfiles = await Promise.all(requests);
+  loadedProfiles.forEach(([accountId, profile]) => {
+    if (profile) {
+      profileByAccountId.set(accountId, profile);
+    }
+  });
+
+  if (profileByAccountId.size === 0) {
+    return players;
+  }
+
+  return players.map((entry) => {
+    const accountId = normalizeAccountId(entry?.account_id);
+    if (accountId == null) {
+      return entry;
+    }
+    const profile = profileByAccountId.get(accountId);
+    if (!profile) {
+      return entry;
+    }
+
+    const patch = {};
+    if (!isNonEmptyString(entry.personaname) && profile.personaname) {
+      patch.personaname = profile.personaname;
+    }
+    if (!isNonEmptyString(entry.avatarfull) && profile.avatarfull) {
+      patch.avatarfull = profile.avatarfull;
+    }
+    if (!isNonEmptyString(entry.avatarmedium) && profile.avatarmedium) {
+      patch.avatarmedium = profile.avatarmedium;
+    }
+    if (!isNonEmptyString(entry.avatar) && profile.avatar) {
+      patch.avatar = profile.avatar;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return entry;
+    }
+    return {
+      ...entry,
+      ...patch,
+    };
+  });
 };
 
 const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, accountId, fallback = {}) => {
@@ -656,12 +766,13 @@ export const fetchRecentMatchDetail = async (
     client.getAbilityNameById(signal).catch(() => new Map()),
   ]);
 
-  const players = toArray(match.players);
+  const rawPlayers = toArray(match.players);
+  const players = await hydrateMatchPlayersProfile(rawPlayers, client, signal);
   const player =
     players.find((entry) => isSamePlayer(entry, accountId, fallback.playerSlot, fallback.heroId)) ?? players[0] ?? null;
 
   if (!player) {
-    throw new Error(lang === 'en' ? 'Match detail is unavailable.' : '当前对局详情不可用。');
+    throw new Error(lang === 'en' ? 'Match detail is unavailable.' : '当前比赛详情不可用。');
   }
 
   const isWin = isPlayerWinInMatch(player.player_slot, match.radiant_win);

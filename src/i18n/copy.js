@@ -47,7 +47,7 @@ const copy = {
       heroes: '英雄池',
       trend: '趋势',
       rankRole: '段位',
-      recentMatches: '最近对局',
+      recentMatches: '最近比赛',
       allHeroes: '全英雄',
       allItems: '全物品',
     },
@@ -93,15 +93,15 @@ const copy = {
       },
     },
     status: {
-      mock: '当前展示的是示例数据。输入 OpenDota ID 或 Steam32 后可查看真实对局分析。',
+      mock: '当前展示的是示例数据。输入 OpenDota ID 或 Steam32 后可查看真实比赛分析。',
       steam: ({ playerName, rawId, days, totalMatches }) =>
         `当前玩家：${playerName}（Steam32: ${rawId}），统计窗口：最近 ${days} 天，共 ${totalMatches} 场。`,
       opendota: ({ playerName, accountId, days, totalMatches }) =>
         `当前玩家：${playerName}（OpenDota ID: ${accountId}），统计窗口：最近 ${days} 天，共 ${totalMatches} 场。`,
       noRecentMatches: ({ playerName, days, latestMatchDate }) =>
         latestMatchDate
-          ? `当前玩家：${playerName}。最近 ${days} 天暂无公开对局，最近一场时间：${latestMatchDate}。`
-          : `当前玩家：${playerName}。最近 ${days} 天暂无公开对局。`,
+          ? `当前玩家：${playerName}。最近 ${days} 天暂无公开比赛，最近一场时间：${latestMatchDate}。`
+          : `当前玩家：${playerName}。最近 ${days} 天暂无公开比赛。`,
     },
     overview: {
       title: '总览摘要',
@@ -113,7 +113,7 @@ const copy = {
       insightTopRoleFallback: '当前没有稳定分路分布。',
     },
     cards: {
-      totalMatches: '总对局场次',
+      totalMatches: '总比赛场次',
       totalMatchesSubtext: (days) => `来自最近 ${days} 天的统计样本`,
       overallWinRate: '综合胜率',
       overallWinRateSubtext: '全英雄加权结果',
@@ -130,7 +130,7 @@ const copy = {
       title: (days) => `${days} 天胜率走势`,
       latestWinRate: (value) => `最新胜率 ${value}%`,
       noDataTag: '暂无可用数据',
-      noDataText: '当前时间窗口没有对局数据。',
+      noDataText: '当前时间窗口没有比赛数据。',
       ariaLabel: (days) => `${days}天胜率走势`,
       detailTitle: '趋势解读',
       detailTag: '窗口统计',
@@ -140,7 +140,7 @@ const copy = {
       detailEmpty: '当前没有足够数据生成趋势解读。',
     },
     rank: {
-      title: '对局段位分布',
+      title: '比赛段位分布',
       tag: (days) => `最近 ${days} 天`,
       noDataText: '当前公开数据没有段位信息。',
     },
@@ -152,8 +152,8 @@ const copy = {
     table: {
       title: '英雄表现对比',
       tag: '支持排序/筛选/导出',
-      openHint: '点击英雄行展开该英雄在当前窗口的对局',
-      heroMatchesEmpty: '该英雄暂无可展示的对局明细。',
+      openHint: '点击英雄行展开该英雄在当前窗口的比赛',
+      heroMatchesEmpty: '该英雄暂无可展示的比赛明细。',
       headers: {
         hero: '英雄',
         attribute: '属性',
@@ -195,8 +195,8 @@ const copy = {
     recentMatches: {
       title: (count) => `最近 ${count} 场详细分析`,
       tag: (count) => `最近 ${count} 场`,
-      limitAriaLabel: '最近对局场次切换',
-      noDataText: '暂无可用对局数据。',
+      limitAriaLabel: '最近比赛场次切换',
+      noDataText: '暂无可用比赛数据。',
       openHint: '点击任意一行查看详情',
       timeTags: {
         today: '今天',
@@ -220,17 +220,17 @@ const copy = {
         duration: '时长',
         laneRole: '分路',
         rank: '段位',
-        matchId: '对局 ID',
+        matchId: '比赛 ID',
       },
       result: {
         win: '胜利',
         loss: '失败',
       },
       detail: {
-        title: '对局详情',
-        loading: '正在加载对局详情...',
-        loadFailed: '对局详情加载失败，请稍后重试。',
-        closeAriaLabel: '关闭对局详情',
+        title: '比赛详情',
+        loading: '正在加载比赛详情...',
+        loadFailed: '比赛详情加载失败，请稍后重试。',
+        closeAriaLabel: '关闭比赛详情',
         sections: {
           overview: '基础概览',
           core: '个人核心数据',
@@ -255,7 +255,7 @@ const copy = {
           stunDuration: '控制时长',
           lastHits: '补刀',
           denies: '反补',
-          netWorth: '净值',
+          netWorth: '经济 💰',
           level: '等级',
           finalItems: '终局装备',
           neutralItem: '中立道具',
@@ -269,8 +269,8 @@ const copy = {
           playerGpmXpm: 'GPM / XPM',
           playerLastHitsDenies: '补刀 / 反补',
           teamKills: '击败',
-          teamNetWorth: '净值总计',
-          playerNetWorth: '净值',
+          teamNetWorth: '总经济 💰',
+          playerNetWorth: '经济 💰',
           playerItems: '装备',
           playerDamage: '英雄伤害 / 治疗',
           playerDamageShare: '伤害占比',
@@ -562,7 +562,7 @@ const copy = {
           stunDuration: 'Stun Duration',
           lastHits: 'Last Hits',
           denies: 'Denies',
-          netWorth: 'Net Worth',
+          netWorth: 'Economy 💰',
           level: 'Level',
           finalItems: 'Final Items',
           neutralItem: 'Neutral Item',
@@ -576,8 +576,8 @@ const copy = {
           playerGpmXpm: 'GPM / XPM',
           playerLastHitsDenies: 'LH / DN',
           teamKills: 'Kills',
-          teamNetWorth: 'Team Net Worth',
-          playerNetWorth: 'Net Worth',
+          teamNetWorth: 'Team Economy 💰',
+          playerNetWorth: 'Economy 💰',
           playerItems: 'Items',
           playerDamage: 'Hero Damage / Healing',
           playerDamageShare: 'Damage Share',

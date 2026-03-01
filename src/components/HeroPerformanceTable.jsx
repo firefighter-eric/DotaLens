@@ -3,7 +3,7 @@ import { toPercent } from '../utils/metrics.js';
 const fallbackCopy = {
   title: '英雄表现对比',
   tag: '支持排序/筛选/导出',
-  openHint: '点击英雄行展开该英雄在当前窗口的对局',
+  openHint: '点击英雄行展开该英雄在当前窗口的比赛',
   headers: {
     hero: '英雄',
     attribute: '属性',
@@ -36,7 +36,7 @@ const fallbackCopy = {
     },
     resultCount: (count) => `共 ${count} 个英雄`,
   },
-  heroMatchesEmpty: '该英雄暂无可展示的对局明细。',
+  heroMatchesEmpty: '该英雄暂无可展示的比赛明细。',
   empty: '当前筛选条件下没有英雄统计数据。',
 };
 
@@ -49,7 +49,7 @@ const fallbackRecentCopy = {
     heroDamage: '英雄伤害',
     duration: '时长',
     rank: '段位',
-    matchId: '对局 ID',
+    matchId: '比赛 ID',
   },
   result: {
     win: '胜利',
