@@ -1,4 +1,5 @@
 import { heroCatalog } from '../data/heroCatalog.js';
+import { itemCatalog } from '../data/itemCatalog.js';
 
 const API_BASE = 'https://api.opendota.com/api';
 const OPEN_DOTA_SITE = 'https://www.opendota.com';
@@ -35,7 +36,7 @@ const requestLocaleConfig = {
 };
 
 const heroesMetaCacheByLang = new Map();
-let itemMetaCache = null;
+const itemMetaCacheByLang = new Map();
 let abilityNameByIdCache = null;
 
 const getRequestLocaleConfig = (lang) => requestLocaleConfig[lang] ?? requestLocaleConfig.zh;
@@ -125,6 +126,46 @@ const buildPersistedHeroesMetaMap = (lang) =>
     return map;
   }, new Map());
 
+const buildPersistedItemMeta = (lang) => {
+  const nameById = new Map();
+  const nameByKey = new Map();
+  const itemById = new Map();
+  const itemByKey = new Map();
+
+  itemCatalog.forEach((item) => {
+    const token = String(item?.key ?? '');
+    if (!token) {
+      return;
+    }
+
+    const nameEn = item?.nameEn ?? item?.name ?? '';
+    const nameZh = item?.nameZh ?? nameEn;
+    const entry = {
+      nameEn,
+      nameZh,
+      name: pickNameByLang(nameEn, nameZh, lang),
+      icon: item?.icon ?? '',
+      iconSource: item?.iconSource ?? '',
+    };
+
+    nameByKey.set(token, entry.name);
+    itemByKey.set(token, entry);
+
+    const id = Number(item?.id);
+    if (Number.isFinite(id) && id > 0) {
+      nameById.set(id, entry.name);
+      itemById.set(id, entry);
+    }
+  });
+
+  return {
+    nameById,
+    nameByKey,
+    itemById,
+    itemByKey,
+  };
+};
+
 const mergeHeroesMeta = (heroes, persistedMap, lang) => {
   const merged = new Map(persistedMap);
   heroes.forEach((hero) => {
@@ -142,6 +183,53 @@ const mergeHeroesMeta = (heroes, persistedMap, lang) => {
     }
   });
   return merged;
+};
+
+const mergeItemMeta = (idToToken, itemDefs, persistedMeta, lang) => {
+  const nameById = new Map(persistedMeta.nameById);
+  const nameByKey = new Map(persistedMeta.nameByKey);
+  const itemById = new Map(persistedMeta.itemById);
+  const itemByKey = new Map(persistedMeta.itemByKey);
+
+  Object.entries(itemDefs).forEach(([token, detail]) => {
+    const objectDetail = toObject(detail);
+    const existing = itemByKey.get(token);
+    const nameEn = resolveNamedEntry(objectDetail, token) || existing?.nameEn || prettifyToken(token);
+    const nameZh = existing?.nameZh ?? nameEn;
+    const iconSource = objectDetail.img ? toAbsoluteUrl(objectDetail.img) : '';
+    const nextEntry = {
+      nameEn,
+      nameZh,
+      name: pickNameByLang(nameEn, nameZh, lang),
+      icon: existing?.icon || iconSource,
+      iconSource: existing?.iconSource || iconSource,
+    };
+    nameByKey.set(token, nextEntry.name);
+    itemByKey.set(token, nextEntry);
+  });
+
+  idToToken.forEach((token, id) => {
+    const fromToken = itemByKey.get(token);
+    const existing = itemById.get(id);
+    const fallbackNameEn = existing?.nameEn ?? prettifyToken(token);
+    const fallbackNameZh = existing?.nameZh ?? fallbackNameEn;
+    const nextEntry = fromToken ?? {
+      nameEn: fallbackNameEn,
+      nameZh: fallbackNameZh,
+      name: pickNameByLang(fallbackNameEn, fallbackNameZh, lang),
+      icon: existing?.icon ?? '',
+      iconSource: existing?.iconSource ?? '',
+    };
+    nameById.set(id, nextEntry.name);
+    itemById.set(id, nextEntry);
+  });
+
+  return {
+    nameById,
+    nameByKey,
+    itemById,
+    itemByKey,
+  };
 };
 
 const getHeroesMetaMap = async (signal, locale, lang) => {
@@ -164,17 +252,14 @@ const getHeroesMetaMap = async (signal, locale, lang) => {
   return heroesMetaCacheByLang.get(cacheKey);
 };
 
-const getItemMeta = async (signal, locale) => {
-  if (itemMetaCache) {
-    return itemMetaCache;
+const getItemMeta = async (signal, locale, lang) => {
+  const cacheKey = lang === 'en' ? 'en' : 'zh';
+  const cached = itemMetaCacheByLang.get(cacheKey);
+  if (cached) {
+    return cached;
   }
 
-  const fallback = {
-    nameById: new Map(),
-    nameByKey: new Map(),
-    itemById: new Map(),
-    itemByKey: new Map(),
-  };
+  const persistedMeta = buildPersistedItemMeta(cacheKey);
 
   try {
     const [itemIdsPayload, itemsPayload] = await Promise.all([
@@ -184,41 +269,13 @@ const getItemMeta = async (signal, locale) => {
 
     const idToToken = buildIdToTokenMap(itemIdsPayload);
     const itemDefs = toObject(itemsPayload);
-    const nameById = new Map();
-    const nameByKey = new Map();
-    const itemById = new Map();
-    const itemByKey = new Map();
-
-    Object.entries(itemDefs).forEach(([token, detail]) => {
-      const objectDetail = toObject(detail);
-      const entry = {
-        name: resolveNamedEntry(objectDetail, token),
-        icon: objectDetail.img ? toAbsoluteUrl(objectDetail.img) : '',
-      };
-      nameByKey.set(token, entry.name);
-      itemByKey.set(token, entry);
-    });
-
-    idToToken.forEach((token, id) => {
-      const entry = itemByKey.get(token) ?? {
-        name: resolveNamedEntry(itemDefs[token], token),
-        icon: '',
-      };
-      nameById.set(id, entry.name);
-      itemById.set(id, entry);
-    });
-
-    itemMetaCache = {
-      nameById,
-      nameByKey,
-      itemById,
-      itemByKey,
-    };
+    const merged = mergeItemMeta(idToToken, itemDefs, persistedMeta, cacheKey);
+    itemMetaCacheByLang.set(cacheKey, merged);
   } catch {
-    itemMetaCache = fallback;
+    itemMetaCacheByLang.set(cacheKey, persistedMeta);
   }
 
-  return itemMetaCache;
+  return itemMetaCacheByLang.get(cacheKey);
 };
 
 const getAbilityNameById = async (signal, locale) => {
@@ -279,7 +336,7 @@ export const createOpenDotaClient = (lang = 'zh') => {
       }
     },
     getHeroesMetaMap: (signal) => getHeroesMetaMap(signal, locale, lang),
-    getItemMeta: (signal) => getItemMeta(signal, locale),
+    getItemMeta: (signal) => getItemMeta(signal, locale, lang),
     getAbilityNameById: (signal) => getAbilityNameById(signal, locale),
   };
 };

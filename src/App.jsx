@@ -6,7 +6,10 @@ import RankDistribution from './components/RankDistribution.jsx';
 import RoleDistribution from './components/RoleDistribution.jsx';
 import RecentMatchesPanel from './components/RecentMatchesPanel.jsx';
 import RecentMatchDetailDrawer from './components/RecentMatchDetailDrawer.jsx';
+import CatalogListPanel from './components/CatalogListPanel.jsx';
 import { dailyWinRate, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
+import { heroCatalog } from './data/heroCatalog.js';
+import { itemCatalog } from './data/itemCatalog.js';
 import { buildRoleDistribution, summarizeDashboard, summarizeRecentMatches } from './utils/metrics.js';
 import { fetchPlayerWindowAnalytics, fetchRecentMatchDetail } from './services/opendota.js';
 import { getCopy } from './i18n/copy.js';
@@ -24,6 +27,36 @@ const TAB_IDS = {
   trend: 'trend',
   rankRole: 'rankRole',
   recentMatches: 'recentMatches',
+  allHeroes: 'allHeroes',
+  allItems: 'allItems',
+};
+
+const HERO_CATEGORY_GROUPS = [
+  { id: 'early', letters: 'abcdef' },
+  { id: 'mid', letters: 'ghijkl' },
+  { id: 'late', letters: 'mnopqr' },
+  { id: 'end', letters: 'stuvwxyz' },
+];
+
+const resolveHeroCategory = (key) => {
+  const initial = String(key ?? '').trim().charAt(0).toLowerCase();
+  const matched = HERO_CATEGORY_GROUPS.find((group) => group.letters.includes(initial));
+  return matched?.id ?? 'end';
+};
+
+const ITEM_CATEGORY_RULES = [
+  { id: 'consumable', keywords: ['tango', 'clarity', 'flask', 'dust', 'ward', 'smoke', 'tpscroll', 'mango', 'faerie'] },
+  { id: 'attribute', keywords: ['gauntlets', 'slippers', 'mantle', 'circlet', 'belt', 'robe', 'branch', 'ogre_axe', 'blade_of_alacrity', 'staff_of_wizardry'] },
+  { id: 'support', keywords: ['mekansm', 'greaves', 'pipe', 'drum', 'vladmir', 'glimmer', 'force_staff', 'lotus', 'urn', 'vessel'] },
+  { id: 'magic', keywords: ['dagon', 'veil', 'kaya', 'sange_and_kaya', 'ethereal_blade', 'octarine', 'wind_waker'] },
+  { id: 'armor', keywords: ['platemail', 'assault', 'shivas', 'mail', 'buckler', 'helm', 'blade_mail', 'lotus_orb'] },
+  { id: 'weapon', keywords: ['sword', 'blade', 'desolator', 'daedalus', 'rapier', 'butterfly', 'basher', 'abyssal', 'manta', 'echo_sabre'] },
+];
+
+const resolveItemCategory = (key) => {
+  const normalized = String(key ?? '').toLowerCase();
+  const matched = ITEM_CATEGORY_RULES.find((rule) => rule.keywords.some((keyword) => normalized.includes(keyword)));
+  return matched?.id ?? 'equipment';
 };
 
 const createMockDashboard = (copy) => {
@@ -581,6 +614,85 @@ function App() {
     [dashboard.recentMatches, recentMatchesLimit]
   );
   const recentMatchSummary = useMemo(() => summarizeRecentMatches(visibleRecentMatches), [visibleRecentMatches]);
+  const catalogLocale = lang === 'en' ? 'en' : 'zh';
+  const heroCategories = useMemo(
+    () => [
+      { id: 'all', label: copy.catalog.categories.all },
+      { id: 'early', label: copy.catalog.categories.heroEarly },
+      { id: 'mid', label: copy.catalog.categories.heroMid },
+      { id: 'late', label: copy.catalog.categories.heroLate },
+      { id: 'end', label: copy.catalog.categories.heroEnd },
+    ],
+    [copy.catalog.categories]
+  );
+  const itemCategories = useMemo(
+    () => [
+      { id: 'all', label: copy.catalog.categories.all },
+      { id: 'consumable', label: copy.catalog.categories.itemConsumable },
+      { id: 'attribute', label: copy.catalog.categories.itemAttribute },
+      { id: 'equipment', label: copy.catalog.categories.itemEquipment },
+      { id: 'support', label: copy.catalog.categories.itemSupport },
+      { id: 'magic', label: copy.catalog.categories.itemMagic },
+      { id: 'armor', label: copy.catalog.categories.itemArmor },
+      { id: 'weapon', label: copy.catalog.categories.itemWeapon },
+    ],
+    [copy.catalog.categories]
+  );
+  const allHeroesCatalog = useMemo(() => {
+    return heroCatalog
+      .slice()
+      .sort((a, b) => (a.id ?? 0) - (b.id ?? 0))
+      .map((hero) => {
+        const label = catalogLocale === 'en' ? hero.nameEn ?? hero.nameZh ?? hero.key : hero.nameZh ?? hero.nameEn ?? hero.key;
+        const category = resolveHeroCategory(hero.key);
+        const fallback = String(label ?? '')
+          .replace(/\s+/g, '')
+          .slice(0, 2)
+          .toUpperCase();
+        return {
+          key: `hero-${hero.id}-${hero.key}`,
+          label: label || `Hero #${hero.id}`,
+          meta: `#${hero.id} · ${hero.key}`,
+          description: copy.catalog.heroDescription({ id: hero.id, key: hero.key }),
+          category,
+          categoryLabel: heroCategories.find((item) => item.id === category)?.label ?? copy.catalog.categories.all,
+          icon: hero.avatar ?? '',
+          fallback: fallback || 'H',
+        };
+      });
+  }, [catalogLocale, copy.catalog, heroCategories]);
+  const allItemsCatalog = useMemo(() => {
+    const unknownIdLabel = copy.catalog.unknownId;
+    return itemCatalog
+      .slice()
+      .sort((a, b) => {
+        const idA = Number.isFinite(a.id) ? a.id : Number.MAX_SAFE_INTEGER;
+        const idB = Number.isFinite(b.id) ? b.id : Number.MAX_SAFE_INTEGER;
+        if (idA !== idB) {
+          return idA - idB;
+        }
+        return String(a.key ?? '').localeCompare(String(b.key ?? ''), catalogLocale);
+      })
+      .map((item) => {
+        const label = catalogLocale === 'en' ? item.nameEn ?? item.nameZh ?? item.key : item.nameZh ?? item.nameEn ?? item.key;
+        const category = resolveItemCategory(item.key);
+        const fallback = String(label ?? '')
+          .replace(/\s+/g, '')
+          .slice(0, 2)
+          .toUpperCase();
+        const itemId = Number.isFinite(item.id) ? `#${item.id}` : unknownIdLabel;
+        return {
+          key: `item-${item.id ?? 'na'}-${item.key}`,
+          label: label || item.key,
+          meta: `${itemId} · ${item.key}`,
+          description: copy.catalog.itemDescription({ id: item.id, key: item.key }),
+          category,
+          categoryLabel: itemCategories.find((entry) => entry.id === category)?.label ?? copy.catalog.categories.itemEquipment,
+          icon: item.icon ?? '',
+          fallback: fallback || 'I',
+        };
+      });
+  }, [catalogLocale, copy.catalog, itemCategories]);
 
   const switchToAccount = (account, forceRefresh = false) => {
     setInputIdType(account.idType);
@@ -732,6 +844,8 @@ function App() {
     { id: TAB_IDS.trend, label: copy.tabs.trend },
     { id: TAB_IDS.rankRole, label: copy.tabs.rankRole },
     { id: TAB_IDS.overview, label: copy.tabs.overview },
+    { id: TAB_IDS.allHeroes, label: copy.tabs.allHeroes, rightGroup: true },
+    { id: TAB_IDS.allItems, label: copy.tabs.allItems },
   ];
 
   const statusLine = error
@@ -939,7 +1053,7 @@ function App() {
                 id={`tab-${item.id}`}
                 role="tab"
                 type="button"
-                className={`tab-btn ${activeTab === item.id ? 'is-active' : ''}`}
+                className={`tab-btn ${activeTab === item.id ? 'is-active' : ''} ${item.rightGroup ? 'is-right-group' : ''}`}
                 aria-selected={activeTab === item.id}
                 aria-controls={`panel-${item.id}`}
                 onClick={() => setActiveTab(item.id)}
@@ -1084,6 +1198,34 @@ function App() {
               onLimitChange={setRecentMatchesLimit}
               selectedMatchId={selectedRecentMatchId}
               onSelectMatch={handleOpenRecentMatchDetail}
+            />
+          </section>
+        ) : null}
+
+        {activeTab === TAB_IDS.allHeroes ? (
+          <section id={`panel-${TAB_IDS.allHeroes}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.allHeroes}`} className="tab-content">
+            <CatalogListPanel
+              title={copy.catalog.heroesTitle}
+              tag={copy.catalog.heroesTag(allHeroesCatalog.length)}
+              items={allHeroesCatalog}
+              emptyText={copy.catalog.heroesEmpty}
+              iconVariant="hero"
+              categories={heroCategories}
+              allCategoryLabel={copy.catalog.categories.all}
+            />
+          </section>
+        ) : null}
+
+        {activeTab === TAB_IDS.allItems ? (
+          <section id={`panel-${TAB_IDS.allItems}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.allItems}`} className="tab-content">
+            <CatalogListPanel
+              title={copy.catalog.itemsTitle}
+              tag={copy.catalog.itemsTag(allItemsCatalog.length)}
+              items={allItemsCatalog}
+              emptyText={copy.catalog.itemsEmpty}
+              iconVariant="item"
+              categories={itemCategories}
+              allCategoryLabel={copy.catalog.categories.all}
             />
           </section>
         ) : null}
