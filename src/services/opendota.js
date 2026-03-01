@@ -66,6 +66,10 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const pad2 = (value) => String(value).padStart(2, '0');
 
 const getLocaleConfig = (locale) => localeConfig[locale] ?? localeConfig.zh;
+const toFiniteOrNull = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
 
 const isMatchWin = (match) => {
   const isRadiant = match.player_slot < 128;
@@ -151,6 +155,9 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
       deaths: 0,
       assists: 0,
       gpm: 0,
+      gpmMatches: 0,
+      xpm: 0,
+      xpmMatches: 0,
       roleCount: {},
     };
 
@@ -159,7 +166,16 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
     record.kills += match.kills ?? 0;
     record.deaths += match.deaths ?? 0;
     record.assists += match.assists ?? 0;
-    record.gpm += match.gold_per_min ?? 0;
+    const gpm = toFiniteOrNull(match.gold_per_min);
+    if (gpm !== null) {
+      record.gpm += gpm;
+      record.gpmMatches += 1;
+    }
+    const xpm = toFiniteOrNull(match.xp_per_min);
+    if (xpm !== null) {
+      record.xpm += xpm;
+      record.xpmMatches += 1;
+    }
 
     const role = resolveRole(match, locale);
     record.roleCount[role] = (record.roleCount[role] ?? 0) + 1;
@@ -170,9 +186,11 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
   return Array.from(aggregate.values())
     .map((record) => {
       const avgKda = (record.kills + record.assists) / Math.max(1, record.deaths);
-      const avgGpm = Math.round(record.gpm / record.matches);
+      const avgGpm = record.gpmMatches > 0 ? Math.round(record.gpm / record.gpmMatches) : null;
+      const avgXpm = record.xpmMatches > 0 ? Math.round(record.xpm / record.xpmMatches) : null;
       const winRate = (record.wins / record.matches) * 100;
-      const impact = clamp(Math.round(winRate * 0.55 + avgKda * 8 + avgGpm / 24), 0, 99);
+      const gpmImpact = avgGpm === null ? 0 : avgGpm / 24;
+      const impact = clamp(Math.round(winRate * 0.55 + avgKda * 8 + gpmImpact), 0, 99);
 
       return {
         heroId: record.heroId,
@@ -183,6 +201,7 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
         wins: record.wins,
         avgKda: Number(avgKda.toFixed(2)),
         avgGpm,
+        avgXpm,
         impact,
       };
     })
@@ -212,8 +231,8 @@ const buildRecentMatches = (matches, heroesMetaMap, locale, limit = RECENT_MATCH
         deaths,
         assists,
         kda: Number(((kills + assists) / Math.max(1, deaths)).toFixed(2)),
-        goldPerMin: match.gold_per_min ?? 0,
-        xpPerMin: match.xp_per_min ?? 0,
+        goldPerMin: toFiniteOrNull(match.gold_per_min),
+        xpPerMin: toFiniteOrNull(match.xp_per_min),
         durationSec: match.duration ?? 0,
         laneRole: resolveRole(match, locale),
         rank: resolveRank(match, locale),

@@ -10,6 +10,7 @@ const fallbackCopy = {
     winRate: '胜率',
     avgKda: '平均 KDA',
     avgGpm: '平均 GPM',
+    avgXpm: '平均 XPM',
     impact: '影响力',
   },
   controls: {
@@ -25,6 +26,7 @@ const fallbackCopy = {
       winRate: '胜率',
       avgKda: '平均 KDA',
       avgGpm: '平均 GPM',
+      avgXpm: '平均 XPM',
       hero: '英雄名',
     },
     directionOptions: {
@@ -116,6 +118,7 @@ function HeroPerformanceTable({
               <th>{copy.headers.winRate}</th>
               <th>{copy.headers.avgKda}</th>
               <th>{copy.headers.avgGpm}</th>
+              <th>{copy.headers.avgXpm}</th>
               <th>{copy.headers.impact}</th>
             </tr>
           </thead>
@@ -133,7 +136,8 @@ function HeroPerformanceTable({
                   <td>{hero.matches}</td>
                   <td>{toPercent(hero.wins, hero.matches)}%</td>
                   <td>{hero.avgKda}</td>
-                  <td>{hero.avgGpm}</td>
+                  <td>{Number.isFinite(hero.avgGpm) ? hero.avgGpm : '-'}</td>
+                  <td>{Number.isFinite(hero.avgXpm) ? hero.avgXpm : '-'}</td>
                   <td>
                     <div className="impact-cell">
                       <span>{hero.impact}</span>
@@ -146,7 +150,7 @@ function HeroPerformanceTable({
               ))
             ) : (
               <tr>
-                <td colSpan={7} className="empty-cell">
+                <td colSpan={8} className="empty-cell">
                   {copy.empty}
                 </td>
               </tr>

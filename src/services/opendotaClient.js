@@ -2,6 +2,20 @@ import { heroCatalog } from '../data/heroCatalog.js';
 
 const API_BASE = 'https://api.opendota.com/api';
 const OPEN_DOTA_SITE = 'https://www.opendota.com';
+const PLAYER_MATCH_PROJECT_FIELDS = [
+  'hero_id',
+  'kills',
+  'deaths',
+  'assists',
+  'lane_role',
+  'is_roaming',
+  'average_rank',
+  'average_rank_tier',
+  'rank_tier',
+  'skill',
+  'gold_per_min',
+  'xp_per_min',
+];
 
 const requestLocaleConfig = {
   zh: {
@@ -124,13 +138,24 @@ export const createOpenDotaClient = (lang = 'zh') => {
     getPlayer: (accountId, signal) => fetchJson(`/players/${accountId}`, signal, locale),
     getPlayerMatchesByDays: async (accountId, days, signal) => {
       const safeDays = toPositiveInt(days, 14);
-      const matches = await fetchJson(`/players/${accountId}/matches?date=${safeDays}&significant=0`, signal, locale);
-      return toArray(matches);
+      const projectQuery = PLAYER_MATCH_PROJECT_FIELDS.map((field) => `project=${field}`).join('&');
+      try {
+        const matches = await fetchJson(`/players/${accountId}/matches?date=${safeDays}&significant=0&${projectQuery}`, signal, locale);
+        return toArray(matches);
+      } catch {
+        const matches = await fetchJson(`/players/${accountId}/matches?date=${safeDays}&significant=0`, signal, locale);
+        return toArray(matches);
+      }
     },
     getPlayerLatestMatches: async (accountId, limit, signal) => {
       const safeLimit = toPositiveInt(limit, 1);
-      const matches = await fetchJson(`/players/${accountId}/matches?limit=${safeLimit}&significant=0`, signal, locale);
-      return toArray(matches);
+      try {
+        const matches = await fetchJson(`/players/${accountId}/recentMatches`, signal, locale);
+        return toArray(matches).slice(0, safeLimit);
+      } catch {
+        const matches = await fetchJson(`/players/${accountId}/matches?limit=${safeLimit}&significant=0`, signal, locale);
+        return toArray(matches);
+      }
     },
     getHeroesMetaMap: (signal) => getHeroesMetaMap(signal, locale, lang),
   };

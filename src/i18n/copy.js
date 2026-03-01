@@ -78,6 +78,10 @@ const copy = {
       avgKdaSubtext: '按英雄平均值计算',
       bestHero: '最高价值英雄',
       bestHeroSubtext: ({ impact, avgGpm }) => `影响力 ${impact} / 平均 GPM ${avgGpm}`,
+      worstHero: '最菜英雄',
+      worstHeroSubtext: ({ impact, avgGpm }) => `影响力 ${impact} / 平均 GPM ${avgGpm}`,
+      mostPlayedHero: '最常玩英雄',
+      mostPlayedHeroSubtext: ({ matches, winRate }) => `${matches} 场 / 胜率 ${winRate}%`,
     },
     trend: {
       title: (days) => `${days} 天胜率走势`,
@@ -112,6 +116,7 @@ const copy = {
         winRate: '胜率',
         avgKda: '平均 KDA',
         avgGpm: '平均 GPM',
+        avgXpm: '平均 XPM',
         impact: '影响力',
       },
       controls: {
@@ -127,6 +132,7 @@ const copy = {
           winRate: '胜率',
           avgKda: '平均 KDA',
           avgGpm: '平均 GPM',
+          avgXpm: '平均 XPM',
           hero: '英雄名',
         },
         directionOptions: {
@@ -258,6 +264,10 @@ const copy = {
       avgKdaSubtext: 'Calculated from hero averages',
       bestHero: 'Top Value Hero',
       bestHeroSubtext: ({ impact, avgGpm }) => `Impact ${impact} / Avg GPM ${avgGpm}`,
+      worstHero: 'Worst Hero',
+      worstHeroSubtext: ({ impact, avgGpm }) => `Impact ${impact} / Avg GPM ${avgGpm}`,
+      mostPlayedHero: 'Most Played Hero',
+      mostPlayedHeroSubtext: ({ matches, winRate }) => `${matches} matches / Win rate ${winRate}%`,
     },
     trend: {
       title: (days) => `${days}-Day Win Rate Trend`,
@@ -292,6 +302,7 @@ const copy = {
         winRate: 'Win Rate',
         avgKda: 'Avg KDA',
         avgGpm: 'Avg GPM',
+        avgXpm: 'Avg XPM',
         impact: 'Impact',
       },
       controls: {
@@ -307,6 +318,7 @@ const copy = {
           winRate: 'Win Rate',
           avgKda: 'Avg KDA',
           avgGpm: 'Avg GPM',
+          avgXpm: 'Avg XPM',
           hero: 'Hero Name',
         },
         directionOptions: {

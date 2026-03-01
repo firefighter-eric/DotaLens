@@ -113,7 +113,10 @@ const compareHeroes = (a, b, sortKey, sortDir, lang) => {
       return hero.avgKda;
     }
     if (sortKey === 'avgGpm') {
-      return hero.avgGpm;
+      return Number.isFinite(hero.avgGpm) ? hero.avgGpm : -1;
+    }
+    if (sortKey === 'avgXpm') {
+      return Number.isFinite(hero.avgXpm) ? hero.avgXpm : -1;
     }
     return hero.impact;
   };
@@ -476,14 +479,15 @@ function App() {
 
     const header = copy.table.headers;
     const rows = [
-      [header.hero, header.role, header.matches, header.winRate, header.avgKda, header.avgGpm, header.impact],
+      [header.hero, header.role, header.matches, header.winRate, header.avgKda, header.avgGpm, header.avgXpm, header.impact],
       ...filteredHeroes.map((hero) => [
         hero.hero,
         hero.role,
         hero.matches,
         `${((hero.wins / Math.max(1, hero.matches)) * 100).toFixed(1)}%`,
         hero.avgKda,
-        hero.avgGpm,
+        Number.isFinite(hero.avgGpm) ? hero.avgGpm : '-',
+        Number.isFinite(hero.avgXpm) ? hero.avgXpm : '-',
         hero.impact,
       ]),
     ];
@@ -533,6 +537,10 @@ function App() {
       : copy.status.mock;
 
   const bestHero = dashboard.metrics.bestHero;
+  const worstHero = dashboard.metrics.worstHero;
+  const mostPlayedHero = dashboard.metrics.mostPlayedHero;
+  const bestHeroAvgGpm = Number.isFinite(bestHero.avgGpm) ? bestHero.avgGpm : copy.recentMatches.emptyValue;
+  const worstHeroAvgGpm = Number.isFinite(worstHero.avgGpm) ? worstHero.avgGpm : copy.recentMatches.emptyValue;
   const topRole = roleDistribution[0]?.role;
   const activeAccount = savedAccounts.find(
     (account) => account.accountId === queryAccountId && account.rawId === queryRawId && account.idType === queryIdType
@@ -757,8 +765,23 @@ function App() {
               <StatCard
                 label={copy.cards.bestHero}
                 value={bestHero.hero}
-                subtext={copy.cards.bestHeroSubtext({ impact: bestHero.impact, avgGpm: bestHero.avgGpm })}
+                subtext={copy.cards.bestHeroSubtext({ impact: bestHero.impact, avgGpm: bestHeroAvgGpm })}
                 accent="blue"
+              />
+              <StatCard
+                label={copy.cards.worstHero}
+                value={worstHero.hero}
+                subtext={copy.cards.worstHeroSubtext({ impact: worstHero.impact, avgGpm: worstHeroAvgGpm })}
+                accent="red"
+              />
+              <StatCard
+                label={copy.cards.mostPlayedHero}
+                value={mostPlayedHero.hero}
+                subtext={copy.cards.mostPlayedHeroSubtext({
+                  matches: mostPlayedHero.matches,
+                  winRate: mostPlayedHero.winRate,
+                })}
+                accent="teal"
               />
             </section>
 
