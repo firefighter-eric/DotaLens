@@ -818,20 +818,15 @@ function App() {
     return grouped;
   }, [dashboard.windowMatches]);
   const recentMatchSummary = useMemo(() => summarizeRecentMatches(visibleRecentMatches), [visibleRecentMatches]);
-  const overviewExtremeMatches = useMemo(() => {
-    if ((dashboard.recentMatches ?? []).length > 0) {
-      return dashboard.recentMatches;
-    }
-    return dashboard.windowMatches ?? [];
-  }, [dashboard.recentMatches, dashboard.windowMatches]);
+  const overviewExtremeMatches = useMemo(() => dashboard.windowMatches ?? [], [dashboard.windowMatches]);
   const overviewExtremes = useMemo(() => summarizeOverviewExtremes(overviewExtremeMatches), [overviewExtremeMatches]);
   const overviewAchievementTotals = useMemo(() => {
     if (dashboard.achievementTotals) {
       return {
         rampage: Math.max(0, Math.trunc(toFiniteOrNull(dashboard.achievementTotals.rampage) ?? 0)),
         godlike: Math.max(0, Math.trunc(toFiniteOrNull(dashboard.achievementTotals.godlike) ?? 0)),
-        rampageDataMatches: dashboard.achievementTotals.rampageDataAvailable ? 1 : 0,
-        godlikeDataMatches: dashboard.achievementTotals.godlikeDataAvailable ? 1 : 0,
+        rampageDataAvailable: dashboard.achievementTotals.rampageDataAvailable === true,
+        godlikeDataAvailable: dashboard.achievementTotals.godlikeDataAvailable === true,
       };
     }
 
@@ -843,11 +838,11 @@ function App() {
         const godlikeDataAvailable = match?.godlikeDataAvailable === true || (godlikeCount != null && godlikeCount > 0);
         acc.rampage += rampageCount == null ? (match?.hasRampage ? 1 : 0) : Math.max(0, Math.trunc(rampageCount));
         acc.godlike += godlikeCount == null ? (match?.hasGodlike ? 1 : 0) : Math.max(0, Math.trunc(godlikeCount));
-        acc.rampageDataMatches += rampageDataAvailable ? 1 : 0;
-        acc.godlikeDataMatches += godlikeDataAvailable ? 1 : 0;
+        acc.rampageDataAvailable = acc.rampageDataAvailable || rampageDataAvailable;
+        acc.godlikeDataAvailable = acc.godlikeDataAvailable || godlikeDataAvailable;
         return acc;
       },
-      { rampage: 0, godlike: 0, rampageDataMatches: 0, godlikeDataMatches: 0 }
+      { rampage: 0, godlike: 0, rampageDataAvailable: false, godlikeDataAvailable: false }
     );
   }, [dashboard.achievementTotals, dashboard.windowMatches]);
   const catalogLocale = lang === 'en' ? 'en' : 'zh';
@@ -1451,7 +1446,7 @@ function App() {
               <StatCard
                 label={copy.cards.rampageCount}
                 value={
-                  overviewAchievementTotals.rampageDataMatches > 0
+                  overviewAchievementTotals.rampageDataAvailable
                     ? overviewAchievementTotals.rampage
                     : copy.recentMatches.emptyValue
                 }
@@ -1461,7 +1456,7 @@ function App() {
               <StatCard
                 label={copy.cards.godlikeCount}
                 value={
-                  overviewAchievementTotals.godlikeDataMatches > 0
+                  overviewAchievementTotals.godlikeDataAvailable
                     ? overviewAchievementTotals.godlike
                     : copy.recentMatches.emptyValue
                 }

@@ -208,6 +208,43 @@ const buildAchievementTotalsFromCounts = (counts) => {
     godlikeDataAvailable: godlikeCount !== null,
   };
 };
+const buildAchievementTotalsFromMatches = (matches) => {
+  const safeMatches = toArray(matches);
+  return safeMatches.reduce(
+    (acc, match) => {
+      const rampageCount = resolveRampageCount(match);
+      const godlikeCount = resolveGodlikeCount(match);
+      const rampageDataAvailable = isRampageDataAvailable(match) || rampageCount > 0;
+      const godlikeDataAvailable = isGodlikeDataAvailable(match) || godlikeCount > 0;
+
+      acc.rampage += rampageCount;
+      acc.godlike += godlikeCount;
+      acc.rampageDataAvailable = acc.rampageDataAvailable || rampageDataAvailable;
+      acc.godlikeDataAvailable = acc.godlikeDataAvailable || godlikeDataAvailable;
+      return acc;
+    },
+    {
+      rampage: 0,
+      godlike: 0,
+      rampageDataAvailable: false,
+      godlikeDataAvailable: false,
+    }
+  );
+};
+const mergeAchievementTotals = (countsTotals, matchTotals) => {
+  const counts = countsTotals ?? null;
+  const matches = matchTotals ?? null;
+
+  const rampageDataAvailable = Boolean(counts?.rampageDataAvailable || matches?.rampageDataAvailable);
+  const godlikeDataAvailable = Boolean(counts?.godlikeDataAvailable || matches?.godlikeDataAvailable);
+
+  return {
+    rampage: counts?.rampageDataAvailable ? counts.rampage : matches?.rampage ?? 0,
+    godlike: counts?.godlikeDataAvailable ? counts.godlike : matches?.godlike ?? 0,
+    rampageDataAvailable,
+    godlikeDataAvailable,
+  };
+};
 const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
 const normalizeAccountId = (value) => {
   const parsed = Number.parseInt(String(value), 10);
@@ -828,7 +865,10 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     client.getHeroesMetaMap(signal),
     client.getPlayerCountsByDays(accountId, days, signal).catch(() => null),
   ]);
-  const achievementTotals = buildAchievementTotalsFromCounts(counts);
+  const achievementTotals = mergeAchievementTotals(
+    buildAchievementTotalsFromCounts(counts),
+    buildAchievementTotalsFromMatches(matches)
+  );
 
   const recentMatches = buildRecentMatches(latestMatches, heroesMetaMap, locale);
   const validMatches = matches.filter((item) => item.start_time);
