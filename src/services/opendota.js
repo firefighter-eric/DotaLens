@@ -53,6 +53,7 @@ const localeConfig = {
     unknownRank: '未知',
     unknownMode: '未知模式',
     unknownQueue: '未知队列',
+    unknownPlayer: '匿名玩家',
     playerFallback: (accountId) => `玩家 ${accountId}`,
   },
   en: {
@@ -101,6 +102,7 @@ const localeConfig = {
     unknownRank: 'Unknown',
     unknownMode: 'Unknown',
     unknownQueue: 'Unknown Queue',
+    unknownPlayer: 'Anonymous',
     playerFallback: (accountId) => `Player ${accountId}`,
   },
 };
@@ -159,12 +161,29 @@ const prettifyToken = (value) =>
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase());
 
-const resolveItemNameById = (itemId, itemMeta) => {
+const resolveItemById = (itemId, itemMeta) => {
   const id = Number.parseInt(String(itemId), 10);
   if (!Number.isFinite(id) || id <= 0) {
     return null;
   }
-  return itemMeta.nameById.get(id) ?? `Item #${id}`;
+  const mapped = itemMeta.itemById?.get(id);
+  if (mapped) {
+    return {
+      id,
+      name: mapped.name,
+      icon: mapped.icon,
+    };
+  }
+  return {
+    id,
+    name: `Item #${id}`,
+    icon: '',
+  };
+};
+
+const resolveItemNameById = (itemId, itemMeta) => {
+  const item = resolveItemById(itemId, itemMeta);
+  return item?.name ?? null;
 };
 
 const resolveItemNameByKey = (itemKey, itemMeta) => {
@@ -260,6 +279,101 @@ const resolveImpactScore = (isWin, kda, goldPerMin, killParticipation) => {
   const gpmScore = Number.isFinite(goldPerMin) ? Math.min(goldPerMin / 11, 35) : 0;
   const kpScore = Number.isFinite(killParticipation) ? Math.min(killParticipation * 0.35, 16) : 0;
   return clamp(Math.round(winBoost + kdaScore + gpmScore + kpScore), 0, 99);
+};
+
+const resolvePlayerDisplayName = (player, locale) => {
+  const name = player.personaname || player.name;
+  if (name) {
+    return name;
+  }
+  if (player.account_id != null) {
+    return `${locale.unknownPlayer} #${player.account_id}`;
+  }
+  return locale.unknownPlayer;
+};
+
+const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, accountId, fallback = {}) => {
+  const teamSummary = players.reduce(
+    (acc, player) => {
+      if (!player || player.player_slot == null) {
+        return acc;
+      }
+      const team = player.player_slot < 128 ? 'radiant' : 'dire';
+      acc[team].kills += player.kills ?? 0;
+      acc[team].heroDamage += toFiniteOrNull(player.hero_damage) ?? 0;
+      acc[team].netWorth += toFiniteOrNull(player.net_worth ?? player.total_gold) ?? 0;
+      return acc;
+    },
+    {
+      radiant: { kills: 0, heroDamage: 0, netWorth: 0 },
+      dire: { kills: 0, heroDamage: 0, netWorth: 0 },
+    }
+  );
+
+  return players
+    .filter((entry) => entry && entry.hero_id != null && entry.player_slot != null)
+    .map((entry) => {
+      const heroMeta = heroesMetaMap.get(entry.hero_id);
+      const kills = entry.kills ?? 0;
+      const deaths = entry.deaths ?? 0;
+      const assists = entry.assists ?? 0;
+      const team = entry.player_slot < 128 ? 'radiant' : 'dire';
+      const currentTeam = teamSummary[team];
+      const heroDamage = toFiniteOrNull(entry.hero_damage);
+      const itemIds = [...ITEM_SLOTS.map((slot) => entry[`item_${slot}`]), entry.item_neutral];
+      const items = itemIds
+        .map((id, index) => {
+          const item = resolveItemById(id, itemMeta);
+          if (!item) {
+            return null;
+          }
+          return {
+            ...item,
+            isNeutral: index === ITEM_SLOTS.length,
+          };
+        })
+        .filter(Boolean);
+
+      return {
+        id: `${entry.account_id ?? 'anonymous'}-${entry.player_slot}-${entry.hero_id}`,
+        accountId: entry.account_id ?? null,
+        playerSlot: entry.player_slot,
+        playerName: resolvePlayerDisplayName(entry, locale),
+        team,
+        heroId: entry.hero_id,
+        hero: heroMeta?.name ?? `Hero #${entry.hero_id}`,
+        heroAvatar: heroMeta?.avatar ?? '',
+        laneRole: resolveRole(entry, locale),
+        rank: resolveRank(entry, locale),
+        kills,
+        deaths,
+        assists,
+        kda: Number(((kills + assists) / Math.max(1, deaths)).toFixed(2)),
+        goldPerMin: toFiniteOrNull(entry.gold_per_min),
+        xpPerMin: toFiniteOrNull(entry.xp_per_min),
+        lastHits: toFiniteOrNull(entry.last_hits),
+        denies: toFiniteOrNull(entry.denies),
+        netWorth: toFiniteOrNull(entry.net_worth ?? entry.total_gold),
+        heroDamage,
+        towerDamage: toFiniteOrNull(entry.tower_damage),
+        heroHealing: toFiniteOrNull(entry.hero_healing),
+        level: toFiniteOrNull(entry.level),
+        killParticipation:
+          currentTeam.kills > 0 ? Number((((kills + assists) / currentTeam.kills) * 100).toFixed(1)) : null,
+        damageShare:
+          currentTeam.heroDamage > 0 && Number.isFinite(heroDamage)
+            ? Number(((heroDamage / currentTeam.heroDamage) * 100).toFixed(1))
+            : null,
+        items,
+        isCurrentPlayer: isSamePlayer(entry, accountId, fallback.playerSlot, fallback.heroId),
+      };
+    })
+    .sort((a, b) => {
+      if (a.team !== b.team) {
+        return a.team === 'radiant' ? -1 : 1;
+      }
+      return a.playerSlot - b.playerSlot;
+    });
 };
 
 const buildDailyWinRate = (matches, days) => {
@@ -492,7 +606,9 @@ export const fetchRecentMatchDetail = async (
   const [match, heroesMetaMap, itemMeta, abilityNameById] = await Promise.all([
     client.getMatchById(matchId, signal),
     client.getHeroesMetaMap(signal),
-    client.getItemMeta(signal).catch(() => ({ nameById: new Map(), nameByKey: new Map() })),
+    client
+      .getItemMeta(signal)
+      .catch(() => ({ nameById: new Map(), nameByKey: new Map(), itemById: new Map(), itemByKey: new Map() })),
     client.getAbilityNameById(signal).catch(() => new Map()),
   ]);
 
@@ -561,5 +677,6 @@ export const fetchRecentMatchDetail = async (
       shardTimeSec:
         resolvePurchaseTime(timeline, ['aghanims_shard', 'aghanims_shard_roshan']) ?? (player.aghanims_shard ? 0 : null),
     },
+    allPlayers: buildAllPlayers(players, heroesMetaMap, itemMeta, locale, accountId, fallback),
   };
 };

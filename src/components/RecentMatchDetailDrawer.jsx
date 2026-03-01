@@ -10,6 +10,7 @@ const fallbackDetailCopy = {
     overview: '基础概览',
     core: '个人核心数据',
     build: '出装与技能',
+    players: '全场玩家',
   },
   labels: {
     result: '结果',
@@ -37,6 +38,19 @@ const fallbackDetailCopy = {
     shard: '阿哈利姆魔晶',
     purchaseTimeline: '出装时间线',
     skillBuild: '技能加点',
+    player: '玩家',
+    hero: '英雄',
+    playerKda: 'K/D/A',
+    playerGpmXpm: 'GPM / XPM',
+    playerLastHitsDenies: '补刀 / 反补',
+    teamKills: '击败',
+    teamNetWorth: '净值总计',
+    playerNetWorth: '净值',
+    playerItems: '装备',
+    playerDamage: '英雄伤害 / 治疗',
+    playerDamageShare: '伤害占比',
+    playerRoleRank: '分路 / 段位',
+    currentPlayer: '当前玩家',
   },
   result: {
     win: '胜利',
@@ -46,6 +60,10 @@ const fallbackDetailCopy = {
     percent: '%',
     second: '秒',
     minute: '分',
+  },
+  teams: {
+    radiant: '天辉',
+    dire: '夜魇',
   },
   emptyValue: '-',
 };
@@ -105,6 +123,11 @@ const formatKdaLine = (overview, copy) => {
   return `${overview.kills ?? 0}/${overview.deaths ?? 0}/${overview.assists ?? 0} (${kda})`;
 };
 
+const formatPlayerKda = (player, copy) => {
+  const kda = Number.isFinite(player.kda) ? player.kda.toFixed(2) : copy.emptyValue;
+  return `${player.kills ?? 0}/${player.deaths ?? 0}/${player.assists ?? 0} (${kda})`;
+};
+
 function RecentMatchDetailDrawer({
   open = false,
   copy = fallbackDetailCopy,
@@ -146,6 +169,9 @@ function RecentMatchDetailDrawer({
   const overview = content?.overview ?? {};
   const core = content?.core ?? {};
   const build = content?.build ?? {};
+  const allPlayers = Array.isArray(content?.allPlayers) ? content.allPlayers : [];
+  const radiantPlayers = allPlayers.filter((item) => item.team === 'radiant');
+  const direPlayers = allPlayers.filter((item) => item.team === 'dire');
 
   return (
     <div className="match-detail-backdrop" role="presentation" onClick={onClose}>
@@ -183,6 +209,122 @@ function RecentMatchDetailDrawer({
 
         {!loading && !error && content ? (
           <div className="match-detail-content">
+            <section className="match-detail-section">
+              <div className="match-player-section-head">
+                <h4>{effectiveCopy.sections.players}</h4>
+              </div>
+              <div className="match-player-team-grid">
+                {[
+                  { key: 'radiant', label: effectiveCopy.teams?.radiant || fallbackDetailCopy.teams.radiant, players: radiantPlayers },
+                  { key: 'dire', label: effectiveCopy.teams?.dire || fallbackDetailCopy.teams.dire, players: direPlayers },
+                ].map((team) => {
+                  const teamKills = team.players.reduce((sum, player) => sum + (player.kills ?? 0), 0);
+                  const teamNetWorth = team.players.reduce((sum, player) => sum + (player.netWorth ?? 0), 0);
+
+                  return (
+                  <article key={team.key} className={`match-player-team is-${team.key}`}>
+                    <div className="match-player-team-head">
+                      <p className="match-player-team-title">{team.label}</p>
+                      <div className="match-player-team-metrics">
+                        <span>
+                          {effectiveCopy.labels.teamKills} {teamKills}
+                        </span>
+                        <span>
+                          {effectiveCopy.labels.teamNetWorth} {formatNumber(teamNetWorth, effectiveCopy.emptyValue)}
+                        </span>
+                      </div>
+                    </div>
+                    {team.players.length ? (
+                      <div className="match-player-scoreboard-wrap">
+                        <div className="match-player-scoreboard is-expanded">
+                          <div className="match-player-row is-head">
+                            <span className="col-player">{effectiveCopy.labels.player}</span>
+                            <span className="is-metric">{effectiveCopy.labels.playerKda}</span>
+                            <span className="is-metric">{effectiveCopy.labels.playerGpmXpm}</span>
+                            <span className="is-metric">{effectiveCopy.labels.playerNetWorth}</span>
+                            <span className="is-metric">{effectiveCopy.labels.playerItems}</span>
+                            <span className="is-metric">{effectiveCopy.labels.playerDamage}</span>
+                            <span className="is-metric">{effectiveCopy.labels.playerLastHitsDenies}</span>
+                            <span className="is-metric">{effectiveCopy.labels.playerRoleRank}</span>
+                          </div>
+
+                          {team.players.map((player) => (
+                            <div key={player.id} className={`match-player-row ${player.isCurrentPlayer ? 'is-current' : ''}`}>
+                              <div className="col-player">
+                                <div className="hero-name-cell">
+                                  {player.heroAvatar ? (
+                                    <img src={player.heroAvatar} alt={player.hero} className="hero-avatar" loading="lazy" />
+                                  ) : null}
+                                  <strong>{player.hero || effectiveCopy.emptyValue}</strong>
+                                </div>
+                                <div className="match-player-name">
+                                  <span>{player.playerName || effectiveCopy.emptyValue}</span>
+                                  {player.isCurrentPlayer ? (
+                                    <em className="match-player-current-tag">{effectiveCopy.labels.currentPlayer}</em>
+                                  ) : null}
+                                </div>
+                                <div className="match-player-submeta">
+                                  <span>
+                                    {effectiveCopy.labels.killParticipation}:{' '}
+                                    {formatPercent(player.killParticipation, effectiveCopy)}
+                                  </span>
+                                  <span>
+                                    {effectiveCopy.labels.playerDamageShare}:{' '}
+                                    {formatPercent(player.damageShare, effectiveCopy)}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <span className="is-metric tabular-number">{formatPlayerKda(player, effectiveCopy)}</span>
+                              <span className="is-metric tabular-number">
+                                {Number.isFinite(player.goldPerMin) ? player.goldPerMin : effectiveCopy.emptyValue} /{' '}
+                                {Number.isFinite(player.xpPerMin) ? player.xpPerMin : effectiveCopy.emptyValue}
+                              </span>
+                              <span className="is-metric tabular-number">{formatNumber(player.netWorth, effectiveCopy.emptyValue)}</span>
+                              <div className="is-metric col-items">
+                                {player.items?.length ? (
+                                  player.items.slice(0, 7).map((item, index) => (
+                                    item.icon ? (
+                                      <img
+                                        key={`${item.id}-${index}`}
+                                        src={item.icon}
+                                        alt={item.name}
+                                        title={item.name}
+                                        className={`player-item-icon ${item.isNeutral ? 'is-neutral' : ''}`}
+                                        loading="lazy"
+                                      />
+                                    ) : (
+                                      <span key={`${item.id}-${index}`} className="player-item-fallback" title={item.name}>
+                                        {item.name.slice(0, 2)}
+                                      </span>
+                                    )
+                                  ))
+                                ) : (
+                                  <span className="empty-text">{effectiveCopy.emptyValue}</span>
+                                )}
+                              </div>
+                              <span className="is-metric tabular-number">
+                                {formatNumber(player.heroDamage, effectiveCopy.emptyValue)} / {formatNumber(player.heroHealing, effectiveCopy.emptyValue)}
+                              </span>
+                              <span className="is-metric tabular-number">
+                                {formatNumber(player.lastHits, effectiveCopy.emptyValue)} / {formatNumber(player.denies, effectiveCopy.emptyValue)}
+                              </span>
+                              <span className="is-metric">
+                                {player.laneRole || effectiveCopy.emptyValue} / {player.rank || effectiveCopy.emptyValue}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="empty-text">{effectiveCopy.emptyValue}</p>
+                    )}
+                  </article>
+                  );
+                })}
+              </div>
+            </section>
+
             <section className="match-detail-section">
               <h4>{effectiveCopy.sections.overview}</h4>
               <div className="match-detail-grid">
@@ -333,6 +475,7 @@ function RecentMatchDetailDrawer({
                 )}
               </ol>
             </section>
+
           </div>
         ) : null}
       </aside>

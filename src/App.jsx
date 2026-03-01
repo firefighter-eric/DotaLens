@@ -124,6 +124,39 @@ const createMockRecentMatchDetail = (match, lang) => {
     0,
     Math.min(99, Math.round((match.result === 'win' ? 14 : 0) + normalizedKda * 9 + normalizedGpm / 12 + killParticipation * 0.28))
   );
+  const mockPlayers = [
+    {
+      id: 'mock-player-1',
+      playerName: isZh ? '你' : 'You',
+      team: 'radiant',
+      hero: match.hero,
+      heroAvatar: match.heroAvatar,
+      laneRole: match.laneRole,
+      rank: match.rank,
+      kills: match.kills,
+      deaths: match.deaths,
+      assists: match.assists,
+      kda: normalizedKda,
+      goldPerMin: Number.isFinite(match.goldPerMin) ? match.goldPerMin : 0,
+      xpPerMin: Number.isFinite(match.xpPerMin) ? match.xpPerMin : 0,
+      lastHits: Math.round(normalizedGpm * (match.durationSec / 60 / 12)),
+      denies: Math.round(normalizedGpm / 55),
+      netWorth: Math.round(normalizedGpm * (match.durationSec / 60)),
+      heroDamage: Math.round(normalizedGpm * 40 + normalizedXpm * 5),
+      towerDamage: Math.round(normalizedGpm * 6),
+      heroHealing: Math.round(normalizedXpm * 3),
+      isCurrentPlayer: true,
+    },
+    { id: 'mock-player-2', playerName: isZh ? '队友 A' : 'Teammate A', team: 'radiant', hero: 'Invoker', kda: 3.6, kills: 9, deaths: 5, assists: 12, goldPerMin: 598, xpPerMin: 644, lastHits: 201, denies: 12, netWorth: 24890, heroDamage: 35600, towerDamage: 3900, heroHealing: 120 },
+    { id: 'mock-player-3', playerName: isZh ? '队友 B' : 'Teammate B', team: 'radiant', hero: 'Mars', kda: 3.4, kills: 6, deaths: 6, assists: 14, goldPerMin: 488, xpPerMin: 571, lastHits: 132, denies: 6, netWorth: 20130, heroDamage: 21900, towerDamage: 4500, heroHealing: 0 },
+    { id: 'mock-player-4', playerName: isZh ? '队友 C' : 'Teammate C', team: 'radiant', hero: 'Rubick', kda: 2.8, kills: 4, deaths: 7, assists: 16, goldPerMin: 372, xpPerMin: 503, lastHits: 62, denies: 2, netWorth: 15620, heroDamage: 14300, towerDamage: 1200, heroHealing: 400 },
+    { id: 'mock-player-5', playerName: isZh ? '队友 D' : 'Teammate D', team: 'radiant', hero: 'Oracle', kda: 3.1, kills: 2, deaths: 5, assists: 14, goldPerMin: 341, xpPerMin: 462, lastHits: 38, denies: 1, netWorth: 14210, heroDamage: 9200, towerDamage: 600, heroHealing: 12100 },
+    { id: 'mock-player-6', playerName: isZh ? '对手 A' : 'Opponent A', team: 'dire', hero: 'Phantom Assassin', kda: 3.0, kills: 11, deaths: 7, assists: 10, goldPerMin: 617, xpPerMin: 653, lastHits: 223, denies: 13, netWorth: 26010, heroDamage: 33800, towerDamage: 3100, heroHealing: 0 },
+    { id: 'mock-player-7', playerName: isZh ? '对手 B' : 'Opponent B', team: 'dire', hero: 'Lina', kda: 2.7, kills: 8, deaths: 8, assists: 14, goldPerMin: 512, xpPerMin: 590, lastHits: 151, denies: 9, netWorth: 21250, heroDamage: 29400, towerDamage: 2100, heroHealing: 0 },
+    { id: 'mock-player-8', playerName: isZh ? '对手 C' : 'Opponent C', team: 'dire', hero: 'Underlord', kda: 2.3, kills: 5, deaths: 9, assists: 16, goldPerMin: 444, xpPerMin: 530, lastHits: 121, denies: 5, netWorth: 18900, heroDamage: 17300, towerDamage: 2400, heroHealing: 0 },
+    { id: 'mock-player-9', playerName: isZh ? '对手 D' : 'Opponent D', team: 'dire', hero: 'Disruptor', kda: 2.1, kills: 3, deaths: 10, assists: 18, goldPerMin: 335, xpPerMin: 470, lastHits: 36, denies: 1, netWorth: 13980, heroDamage: 12900, towerDamage: 430, heroHealing: 0 },
+    { id: 'mock-player-10', playerName: isZh ? '对手 E' : 'Opponent E', team: 'dire', hero: 'Warlock', kda: 2.0, kills: 2, deaths: 9, assists: 16, goldPerMin: 322, xpPerMin: 456, lastHits: 34, denies: 0, netWorth: 13450, heroDamage: 8700, towerDamage: 380, heroHealing: 9800 },
+  ];
 
   return {
     matchId: match.matchId,
@@ -167,6 +200,7 @@ const createMockRecentMatchDetail = (match, lang) => {
       scepterTimeSec: 1320,
       shardTimeSec: 1620,
     },
+    allPlayers: mockPlayers,
   };
 };
 

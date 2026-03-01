@@ -172,6 +172,8 @@ const getItemMeta = async (signal, locale) => {
   const fallback = {
     nameById: new Map(),
     nameByKey: new Map(),
+    itemById: new Map(),
+    itemByKey: new Map(),
   };
 
   try {
@@ -184,19 +186,33 @@ const getItemMeta = async (signal, locale) => {
     const itemDefs = toObject(itemsPayload);
     const nameById = new Map();
     const nameByKey = new Map();
+    const itemById = new Map();
+    const itemByKey = new Map();
 
     Object.entries(itemDefs).forEach(([token, detail]) => {
-      nameByKey.set(token, resolveNamedEntry(detail, token));
+      const objectDetail = toObject(detail);
+      const entry = {
+        name: resolveNamedEntry(objectDetail, token),
+        icon: objectDetail.img ? toAbsoluteUrl(objectDetail.img) : '',
+      };
+      nameByKey.set(token, entry.name);
+      itemByKey.set(token, entry);
     });
 
     idToToken.forEach((token, id) => {
-      const detail = itemDefs[token];
-      nameById.set(id, resolveNamedEntry(detail, token));
+      const entry = itemByKey.get(token) ?? {
+        name: resolveNamedEntry(itemDefs[token], token),
+        icon: '',
+      };
+      nameById.set(id, entry.name);
+      itemById.set(id, entry);
     });
 
     itemMetaCache = {
       nameById,
       nameByKey,
+      itemById,
+      itemByKey,
     };
   } catch {
     itemMetaCache = fallback;
