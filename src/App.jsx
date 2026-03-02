@@ -127,7 +127,7 @@ const createMockDashboard = (copy, lang = 'zh') => {
     ...hero,
     attribute: localizeMockAttribute(hero.attribute, lang),
   }));
-  const metrics = summarizeDashboard(localizedHeroPerformance);
+  const metrics = summarizeDashboard(localizedHeroPerformance, recentMatches);
   const achievementTotals = recentMatches.reduce(
     (acc, match) => {
       const rampageCount = toFiniteOrNull(match?.rampageCount);
@@ -1447,6 +1447,18 @@ function App() {
                   winRate: mostPlayedHero.winRate,
                 })}
                 accent="teal"
+              />
+              <StatCard
+                label={copy.cards.longestWinStreak}
+                value={dashboard.metrics.longestWinStreak}
+                subtext={copy.cards.longestWinStreakSubtext(days)}
+                accent="gold"
+              />
+              <StatCard
+                label={copy.cards.longestLossStreak}
+                value={dashboard.metrics.longestLossStreak}
+                subtext={copy.cards.longestLossStreakSubtext(days)}
+                accent="red"
               />
               <StatCard
                 label={copy.cards.rampageCount}

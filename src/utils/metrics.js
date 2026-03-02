@@ -68,13 +68,69 @@ export const summarizeOverviewExtremes = (matches) => {
   };
 };
 
-export const summarizeDashboard = (heroData) => {
+const summarizeStreaks = (matches) => {
+  const safeMatches = Array.isArray(matches) ? matches : [];
+  if (!safeMatches.length) {
+    return {
+      longestWinStreak: 0,
+      longestLossStreak: 0,
+    };
+  }
+
+  const sortedMatches = [...safeMatches].sort((a, b) => {
+    const startA = Number(a?.startTime ?? 0);
+    const startB = Number(b?.startTime ?? 0);
+    if (startA !== startB) {
+      return startA - startB;
+    }
+    return Number(a?.matchId ?? 0) - Number(b?.matchId ?? 0);
+  });
+
+  let longestWinStreak = 0;
+  let longestLossStreak = 0;
+  let currentWinStreak = 0;
+  let currentLossStreak = 0;
+
+  sortedMatches.forEach((match) => {
+    if (match?.result === 'win') {
+      currentWinStreak += 1;
+      currentLossStreak = 0;
+      if (currentWinStreak > longestWinStreak) {
+        longestWinStreak = currentWinStreak;
+      }
+      return;
+    }
+
+    if (match?.result === 'loss') {
+      currentLossStreak += 1;
+      currentWinStreak = 0;
+      if (currentLossStreak > longestLossStreak) {
+        longestLossStreak = currentLossStreak;
+      }
+      return;
+    }
+
+    currentWinStreak = 0;
+    currentLossStreak = 0;
+  });
+
+  return {
+    longestWinStreak,
+    longestLossStreak,
+  };
+};
+
+export const summarizeDashboard = (heroData, windowMatches = []) => {
+  const streaks = summarizeStreaks(windowMatches);
+
   if (!heroData.length) {
     return {
       totalMatches: 0,
       overallWinRate: '0.0',
       avgKda: '0.00',
       avgGpm: null,
+      longestWinStreak: streaks.longestWinStreak,
+      longestLossStreak: streaks.longestLossStreak,
       bestHero: {
         hero: '-',
         impact: 0,
@@ -123,6 +179,8 @@ export const summarizeDashboard = (heroData) => {
     overallWinRate: toPercent(totals.wins, totals.matches),
     avgKda: (totals.totalKa / Math.max(1, totals.totalDeaths)).toFixed(2),
     avgGpm: totals.gpmCount > 0 ? Math.round(totals.gpm / totals.gpmCount) : null,
+    longestWinStreak: streaks.longestWinStreak,
+    longestLossStreak: streaks.longestLossStreak,
     bestHero,
     worstHero,
     mostPlayedHero: {
