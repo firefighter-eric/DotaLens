@@ -68,13 +68,69 @@ export const summarizeOverviewExtremes = (matches) => {
   };
 };
 
-export const summarizeDashboard = (heroData) => {
+const summarizeStreaks = (matches) => {
+  const safeMatches = Array.isArray(matches) ? matches : [];
+  if (!safeMatches.length) {
+    return {
+      longestWinStreak: 0,
+      longestLossStreak: 0,
+    };
+  }
+
+  const sortedMatches = [...safeMatches].sort((a, b) => {
+    const startA = Number(a?.startTime ?? 0);
+    const startB = Number(b?.startTime ?? 0);
+    if (startA !== startB) {
+      return startA - startB;
+    }
+    return Number(a?.matchId ?? 0) - Number(b?.matchId ?? 0);
+  });
+
+  let longestWinStreak = 0;
+  let longestLossStreak = 0;
+  let currentWinStreak = 0;
+  let currentLossStreak = 0;
+
+  sortedMatches.forEach((match) => {
+    if (match?.result === 'win') {
+      currentWinStreak += 1;
+      currentLossStreak = 0;
+      if (currentWinStreak > longestWinStreak) {
+        longestWinStreak = currentWinStreak;
+      }
+      return;
+    }
+
+    if (match?.result === 'loss') {
+      currentLossStreak += 1;
+      currentWinStreak = 0;
+      if (currentLossStreak > longestLossStreak) {
+        longestLossStreak = currentLossStreak;
+      }
+      return;
+    }
+
+    currentWinStreak = 0;
+    currentLossStreak = 0;
+  });
+
+  return {
+    longestWinStreak,
+    longestLossStreak,
+  };
+};
+
+export const summarizeDashboard = (heroData, windowMatches = []) => {
+  const streaks = summarizeStreaks(windowMatches);
+
   if (!heroData.length) {
     return {
       totalMatches: 0,
       overallWinRate: '0.0',
       avgKda: '0.00',
       avgGpm: null,
+      longestWinStreak: streaks.longestWinStreak,
+      longestLossStreak: streaks.longestLossStreak,
       bestHero: {
         hero: '-',
         impact: 0,
@@ -97,14 +153,21 @@ export const summarizeDashboard = (heroData) => {
     (acc, hero) => {
       acc.matches += hero.matches;
       acc.wins += hero.wins;
-      acc.kda += hero.avgKda;
-      if (Number.isFinite(hero.avgGpm)) {
-        acc.gpm += hero.avgGpm;
-        acc.gpmCount += 1;
+      const kills = toFiniteOrNull(hero.kills);
+      const deaths = toFiniteOrNull(hero.deaths);
+      const assists = toFiniteOrNull(hero.assists);
+      if (kills !== null && deaths !== null && assists !== null) {
+        acc.totalKa += kills + assists;
+        acc.totalDeaths += deaths;
+      }
+      const matches = toFiniteOrNull(hero.matches);
+      if (Number.isFinite(hero.avgGpm) && matches !== null && matches > 0) {
+        acc.gpm += hero.avgGpm * matches;
+        acc.gpmCount += matches;
       }
       return acc;
     },
-    { matches: 0, wins: 0, kda: 0, gpm: 0, gpmCount: 0 }
+    { matches: 0, wins: 0, totalKa: 0, totalDeaths: 0, gpm: 0, gpmCount: 0 }
   );
 
   const bestHero = [...heroData].sort((a, b) => b.impact - a.impact)[0];
@@ -114,8 +177,10 @@ export const summarizeDashboard = (heroData) => {
   return {
     totalMatches: totals.matches,
     overallWinRate: toPercent(totals.wins, totals.matches),
-    avgKda: (totals.kda / heroData.length).toFixed(2),
+    avgKda: (totals.totalKa / Math.max(1, totals.totalDeaths)).toFixed(2),
     avgGpm: totals.gpmCount > 0 ? Math.round(totals.gpm / totals.gpmCount) : null,
+    longestWinStreak: streaks.longestWinStreak,
+    longestLossStreak: streaks.longestLossStreak,
     bestHero,
     worstHero,
     mostPlayedHero: {
@@ -166,7 +231,9 @@ export const summarizeRecentMatches = (matches) => {
   const totals = matches.reduce(
     (acc, match) => {
       acc.wins += match.result === 'win' ? 1 : 0;
-      acc.kda += match.kda ?? 0;
+      acc.kills += match.kills ?? 0;
+      acc.deaths += match.deaths ?? 0;
+      acc.assists += match.assists ?? 0;
       if (Number.isFinite(match.goldPerMin)) {
         acc.gpm += match.goldPerMin;
         acc.gpmCount += 1;
@@ -174,14 +241,14 @@ export const summarizeRecentMatches = (matches) => {
       acc.durationSec += match.durationSec ?? 0;
       return acc;
     },
-    { wins: 0, kda: 0, gpm: 0, gpmCount: 0, durationSec: 0 }
+    { wins: 0, kills: 0, deaths: 0, assists: 0, gpm: 0, gpmCount: 0, durationSec: 0 }
   );
 
   return {
     total: matches.length,
     wins: totals.wins,
     winRate: toPercent(totals.wins, matches.length),
-    avgKda: (totals.kda / matches.length).toFixed(2),
+    avgKda: ((totals.kills + totals.assists) / Math.max(1, totals.deaths)).toFixed(2),
     avgGpm: totals.gpmCount > 0 ? Math.round(totals.gpm / totals.gpmCount) : null,
     avgDurationMin: Math.round(totals.durationSec / matches.length / 60),
   };
