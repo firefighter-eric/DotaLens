@@ -46,7 +46,7 @@ const localeConfig = {
       12: '技能征召',
       16: '队长征召',
       22: '全英雄随机死亡竞赛',
-      23: '涡轮',
+      23: '加速',
     },
     lobbyTypeMap: {
       0: '普通匹配',
@@ -633,36 +633,36 @@ const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, accountId, fa
     });
 };
 
-const buildDailyWinRate = (matches, days) => {
-  const resolveTrendSmoothingWindow = (windowDays) => {
-    if (windowDays >= 365) {
-      return 7;
-    }
-    if (windowDays >= 60) {
-      return 5;
-    }
-    if (windowDays >= 30) {
-      return 3;
-    }
-    return 1;
-  };
+const resolveTrendSmoothingWindow = (windowDays) => {
+  if (windowDays >= 365) {
+    return 7;
+  }
+  if (windowDays >= 60) {
+    return 5;
+  }
+  if (windowDays >= 30) {
+    return 3;
+  }
+  return 1;
+};
 
-  const smoothDailyValues = (series, windowSize) => {
-    if (windowSize <= 1 || series.length <= 1) {
-      return series;
-    }
+const smoothDailyValues = (series, windowSize, roundValue = (value) => value) => {
+  if (windowSize <= 1 || series.length <= 1) {
+    return series;
+  }
 
-    return series.map((point, index) => {
-      const start = Math.max(0, index - windowSize + 1);
-      const segment = series.slice(start, index + 1);
-      const avgValue = Math.round(segment.reduce((sum, item) => sum + item.value, 0) / segment.length);
-      return {
-        day: point.day,
-        value: avgValue,
-      };
-    });
-  };
+  return series.map((point, index) => {
+    const start = Math.max(0, index - windowSize + 1);
+    const segment = series.slice(start, index + 1);
+    const avgValue = segment.reduce((sum, item) => sum + item.value, 0) / segment.length;
+    return {
+      day: point.day,
+      value: roundValue(avgValue),
+    };
+  });
+};
 
+const buildDailyTrendSeries = (matches, days, options) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayStartMs = today.getTime();
@@ -672,8 +672,7 @@ const buildDailyWinRate = (matches, days) => {
     const date = new Date(todayStartMs - offset * DAY_MS);
     return {
       day: toLabel(date),
-      matches: 0,
-      wins: 0,
+      state: options.createState(),
     };
   });
 
@@ -684,14 +683,14 @@ const buildDailyWinRate = (matches, days) => {
       return;
     }
     const bucketIndex = days - 1 - diff;
-    buckets[bucketIndex].matches += 1;
-    buckets[bucketIndex].wins += isMatchWin(match) ? 1 : 0;
+    options.applyMatch(buckets[bucketIndex].state, match);
   });
 
-  let previousValue = 0;
-  const rawSeries = buckets.map((bucket) => {
-    if (bucket.matches > 0) {
-      previousValue = Math.round((bucket.wins / bucket.matches) * 100);
+  let previousValue = options.initialValue ?? 0;
+  const series = buckets.map((bucket) => {
+    const nextValue = options.resolveValue(bucket.state);
+    if (nextValue !== null) {
+      previousValue = nextValue;
     }
     return {
       day: bucket.day,
@@ -699,8 +698,51 @@ const buildDailyWinRate = (matches, days) => {
     };
   });
 
-  return smoothDailyValues(rawSeries, resolveTrendSmoothingWindow(days));
+  return smoothDailyValues(series, resolveTrendSmoothingWindow(days), options.roundValue);
 };
+
+const buildDailyWinRate = (matches, days) =>
+  buildDailyTrendSeries(matches, days, {
+    createState: () => ({ matches: 0, wins: 0 }),
+    applyMatch: (state, match) => {
+      state.matches += 1;
+      state.wins += isMatchWin(match) ? 1 : 0;
+    },
+    resolveValue: (state) => (state.matches > 0 ? Math.round((state.wins / state.matches) * 100) : null),
+    roundValue: (value) => Math.round(value),
+    initialValue: 0,
+  });
+
+const buildDailyKdaTrend = (matches, days) =>
+  buildDailyTrendSeries(matches, days, {
+    createState: () => ({ kills: 0, deaths: 0, assists: 0, matches: 0 }),
+    applyMatch: (state, match) => {
+      state.matches += 1;
+      state.kills += match.kills ?? 0;
+      state.deaths += match.deaths ?? 0;
+      state.assists += match.assists ?? 0;
+    },
+    resolveValue: (state) =>
+      state.matches > 0 ? Number(((state.kills + state.assists) / Math.max(1, state.deaths)).toFixed(2)) : null,
+    roundValue: (value) => Number(value.toFixed(2)),
+    initialValue: 0,
+  });
+
+const buildDailyGpmTrend = (matches, days) =>
+  buildDailyTrendSeries(matches, days, {
+    createState: () => ({ gpmTotal: 0, gpmMatches: 0 }),
+    applyMatch: (state, match) => {
+      const gpm = toFiniteOrNull(match.gold_per_min);
+      if (gpm === null) {
+        return;
+      }
+      state.gpmTotal += gpm;
+      state.gpmMatches += 1;
+    },
+    resolveValue: (state) => (state.gpmMatches > 0 ? Math.round(state.gpmTotal / state.gpmMatches) : null),
+    roundValue: (value) => Math.round(value),
+    initialValue: 0,
+  });
 
 const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
   const aggregate = new Map();
@@ -882,6 +924,8 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
       playerAvatar: resolvePlayerAvatar(player),
       heroPerformance: [],
       dailyWinRate: [],
+      dailyKdaTrend: [],
+      dailyGpmTrend: [],
       rankDistribution: [],
       recentMatches,
       windowMatches: [],
@@ -894,6 +938,8 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
 
   const heroPerformance = buildHeroPerformance(validMatches, heroesMetaMap, locale);
   const dailyWinRate = buildDailyWinRate(validMatches, days);
+  const dailyKdaTrend = buildDailyKdaTrend(validMatches, days);
+  const dailyGpmTrend = buildDailyGpmTrend(validMatches, days);
   const rankDistribution = buildRankDistribution(validMatches, locale);
 
   return {
@@ -901,6 +947,8 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     playerAvatar: resolvePlayerAvatar(player),
     heroPerformance,
     dailyWinRate,
+    dailyKdaTrend,
+    dailyGpmTrend,
     rankDistribution,
     recentMatches,
     windowMatches,

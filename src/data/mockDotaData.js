@@ -108,6 +108,40 @@ export const dailyWinRate = [
   { day: '02/20', value: 64 },
 ];
 
+export const dailyKdaTrend = [
+  { day: '02/07', value: 2.9 },
+  { day: '02/08', value: 3.1 },
+  { day: '02/09', value: 3.3 },
+  { day: '02/10', value: 3.2 },
+  { day: '02/11', value: 3.4 },
+  { day: '02/12', value: 3.6 },
+  { day: '02/13', value: 3.5 },
+  { day: '02/14', value: 3.7 },
+  { day: '02/15', value: 3.9 },
+  { day: '02/16', value: 3.8 },
+  { day: '02/17', value: 4.0 },
+  { day: '02/18', value: 4.2 },
+  { day: '02/19', value: 4.1 },
+  { day: '02/20', value: 4.3 },
+];
+
+export const dailyGpmTrend = [
+  { day: '02/07', value: 468 },
+  { day: '02/08', value: 482 },
+  { day: '02/09', value: 496 },
+  { day: '02/10', value: 491 },
+  { day: '02/11', value: 507 },
+  { day: '02/12', value: 521 },
+  { day: '02/13', value: 514 },
+  { day: '02/14', value: 529 },
+  { day: '02/15', value: 543 },
+  { day: '02/16', value: 538 },
+  { day: '02/17', value: 552 },
+  { day: '02/18', value: 566 },
+  { day: '02/19', value: 559 },
+  { day: '02/20', value: 574 },
+];
+
 export const rankDistribution = [
   { tier: 'Archon', ratio: 18 },
   { tier: 'Legend', ratio: 31 },

@@ -253,3 +253,36 @@ export const summarizeRecentMatches = (matches) => {
     avgDurationMin: Math.round(totals.durationSec / matches.length / 60),
   };
 };
+
+export const buildGameModeDistribution = (matches, unknownModeLabel = 'Unknown') => {
+  const safeMatches = Array.isArray(matches) ? matches : [];
+  if (!safeMatches.length) {
+    return [];
+  }
+
+  const modeCounter = safeMatches.reduce((acc, match) => {
+    const normalizedMode = String(match?.gameMode ?? '')
+      .trim();
+    const mode = normalizedMode || unknownModeLabel;
+    acc.set(mode, (acc.get(mode) ?? 0) + 1);
+    return acc;
+  }, new Map());
+
+  const totalMatches = Array.from(modeCounter.values()).reduce((sum, count) => sum + count, 0);
+  if (!totalMatches) {
+    return [];
+  }
+
+  return Array.from(modeCounter.entries())
+    .map(([mode, count]) => ({
+      mode,
+      matches: count,
+      ratio: Number(((count / totalMatches) * 100).toFixed(1)),
+    }))
+    .sort((a, b) => {
+      if (b.matches !== a.matches) {
+        return b.matches - a.matches;
+      }
+      return a.mode.localeCompare(b.mode);
+    });
+};
