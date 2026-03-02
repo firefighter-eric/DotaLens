@@ -1,9 +1,12 @@
+import { useId } from 'react';
+
 const fallbackCopy = {
-  title: (days) => `${days} 天胜率走势`,
-  latestWinRate: (value) => `最新胜率 ${value}%`,
+  title: (days) => `${days} 天趋势`,
+  latestValue: (value) => `最新值 ${value}`,
+  axisValue: (value) => String(value),
   noDataTag: '暂无可用数据',
   noDataText: '当前时间窗口没有比赛数据。',
-  ariaLabel: (days) => `${days}天胜率走势`,
+  ariaLabel: (days) => `${days}天趋势`,
 };
 
 const resolveLabelCount = (pointCount) => {
@@ -40,7 +43,74 @@ const pickXAxisLabels = (data) => {
     }));
 };
 
-function WinRateTrend({ data, days = 14, copy = fallbackCopy }) {
+const resolveTrendRange = (data, percentage) => {
+  const rawMin = Math.min(...data.map((point) => point.value));
+  const rawMax = Math.max(...data.map((point) => point.value));
+
+  if (percentage) {
+    let min = Math.max(0, Math.floor((rawMin - 4) / 5) * 5);
+    let max = Math.min(100, Math.ceil((rawMax + 4) / 5) * 5);
+
+    if (min === max) {
+      min = Math.max(0, min - 5);
+      max = Math.min(100, max + 5);
+    }
+    return { min, max };
+  }
+
+  const resolveNiceStep = (range) => {
+    if (range <= 3) {
+      return 0.25;
+    }
+    if (range <= 8) {
+      return 0.5;
+    }
+    if (range <= 20) {
+      return 1;
+    }
+    if (range <= 60) {
+      return 2;
+    }
+    if (range <= 150) {
+      return 5;
+    }
+    if (range <= 300) {
+      return 10;
+    }
+    return 20;
+  };
+
+  let min = rawMin;
+  let max = rawMax;
+  if (min === max) {
+    const delta = Math.max(1, Math.abs(max) * 0.1);
+    min -= delta;
+    max += delta;
+  }
+
+  const span = max - min;
+  const padding = Math.max(span * 0.12, span < 10 ? 0.5 : 1);
+  min = Math.max(0, min - padding);
+  max += padding;
+
+  const step = resolveNiceStep(max - min);
+  min = Math.floor(min / step) * step;
+  max = Math.ceil(max / step) * step;
+  if (min === max) {
+    max = min + step;
+  }
+
+  return {
+    min: Number(min.toFixed(step < 1 ? 2 : 0)),
+    max: Number(max.toFixed(step < 1 ? 2 : 0)),
+  };
+};
+
+function WinRateTrend({ data, days = 14, copy = fallbackCopy, percentage = false }) {
+  const gradientId = useId().replace(/:/g, '');
+  const latestValueFormatter = copy.latestValue ?? copy.latestWinRate ?? fallbackCopy.latestValue;
+  const axisValueFormatter = copy.axisValue ?? ((value) => (percentage ? `${value}%` : String(value)));
+
   if (!data.length) {
     return (
       <section className="panel trend-panel">
@@ -61,20 +131,13 @@ function WinRateTrend({ data, days = 14, copy = fallbackCopy }) {
   const paddingLeft = 48;
   const plotWidth = width - paddingLeft - paddingRight;
   const plotHeight = height - paddingTop - paddingBottom;
-  const rawMin = Math.min(...data.map((point) => point.value));
-  const rawMax = Math.max(...data.map((point) => point.value));
-  let min = Math.max(0, Math.floor((rawMin - 4) / 5) * 5);
-  let max = Math.min(100, Math.ceil((rawMax + 4) / 5) * 5);
-
-  if (min === max) {
-    min = Math.max(0, min - 5);
-    max = Math.min(100, max + 5);
-  }
+  const { min, max } = resolveTrendRange(data, percentage);
 
   const scale = Math.max(1, max - min);
   const yTicks = Array.from({ length: 5 }, (_, index) => {
     const ratio = index / 4;
-    const value = Math.round(max - ratio * (max - min));
+    const rawValue = max - ratio * (max - min);
+    const value = Number(rawValue.toFixed(2));
     const y = paddingTop + ratio * plotHeight;
     return { value, y };
   });
@@ -96,11 +159,11 @@ function WinRateTrend({ data, days = 14, copy = fallbackCopy }) {
     <section className="panel trend-panel">
       <div className="panel-header">
         <h2>{copy.title(days)}</h2>
-        <span className="panel-tag">{copy.latestWinRate(last.value)}</span>
+        <span className="panel-tag">{latestValueFormatter(last.value)}</span>
       </div>
       <svg viewBox={`0 0 ${width} ${height}`} className="trend-chart" role="img" aria-label={copy.ariaLabel(days)}>
         <defs>
-          <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="rgba(16, 163, 127, 0.24)" />
             <stop offset="100%" stopColor="rgba(16, 163, 127, 0)" />
           </linearGradient>
@@ -109,7 +172,7 @@ function WinRateTrend({ data, days = 14, copy = fallbackCopy }) {
           <g key={tick.value}>
             <line x1={paddingLeft} y1={tick.y} x2={width - paddingRight} y2={tick.y} className="trend-grid-line" />
             <text x={paddingLeft - 8} y={tick.y} className="trend-axis-text">
-              {tick.value}%
+              {axisValueFormatter(tick.value)}
             </text>
           </g>
         ))}
@@ -124,6 +187,7 @@ function WinRateTrend({ data, days = 14, copy = fallbackCopy }) {
         <polygon
           points={`${paddingLeft},${height - paddingBottom} ${points} ${width - paddingRight},${height - paddingBottom}`}
           className="trend-area"
+          style={{ fill: `url(#${gradientId})` }}
         />
       </svg>
       <div className="trend-labels" style={{ paddingInline: `${xLabelPaddingLeft} ${xLabelPaddingRight}` }}>

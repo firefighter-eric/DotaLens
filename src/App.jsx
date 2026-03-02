@@ -3,13 +3,14 @@ import StatCard from './components/StatCard.jsx';
 import WinRateTrend from './components/WinRateTrend.jsx';
 import HeroPerformanceTable from './components/HeroPerformanceTable.jsx';
 import RankDistribution from './components/RankDistribution.jsx';
+import GameModeDistributionPie from './components/GameModeDistributionPie.jsx';
 import RecentMatchesPanel from './components/RecentMatchesPanel.jsx';
 import RecentMatchDetailDrawer from './components/RecentMatchDetailDrawer.jsx';
 import CatalogListPanel from './components/CatalogListPanel.jsx';
-import { dailyWinRate, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
+import { dailyGpmTrend, dailyKdaTrend, dailyWinRate, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
 import { heroCatalog } from './data/heroCatalog.js';
 import { itemCatalog } from './data/itemCatalog.js';
-import { summarizeDashboard, summarizeOverviewExtremes, summarizeRecentMatches } from './utils/metrics.js';
+import { buildGameModeDistribution, summarizeDashboard, summarizeOverviewExtremes, summarizeRecentMatches } from './utils/metrics.js';
 import { fetchPlayerWindowAnalytics, fetchRecentMatchDetail } from './services/opendota.js';
 import { createOpenDotaClient } from './services/opendotaClient.js';
 import { getCopy } from './i18n/copy.js';
@@ -24,6 +25,7 @@ const SUPPORTED_TIME_WINDOWS = [30, 365];
 const DEFAULT_TIME_WINDOW = 30;
 const TAB_IDS = {
   overview: 'overview',
+  trend: 'trend',
   heroes: 'heroes',
   recentMatches: 'recentMatches',
   allHeroes: 'allHeroes',
@@ -84,6 +86,11 @@ const MOCK_ATTRIBUTE_LABEL = {
   },
 };
 
+const MOCK_GAME_MODE_LABEL = {
+  zh: '全英雄选择',
+  en: 'All Pick',
+};
+
 const localizeMockAttribute = (attribute, lang) => {
   const locale = lang === 'en' ? 'en' : 'zh';
   return MOCK_ATTRIBUTE_LABEL[locale][attribute] ?? MOCK_ATTRIBUTE_LABEL[locale].Unlabeled;
@@ -127,8 +134,12 @@ const createMockDashboard = (copy, lang = 'zh') => {
     ...hero,
     attribute: localizeMockAttribute(hero.attribute, lang),
   }));
-  const metrics = summarizeDashboard(localizedHeroPerformance, recentMatches);
-  const achievementTotals = recentMatches.reduce(
+  const localizedRecentMatches = recentMatches.map((match) => ({
+    ...match,
+    gameMode: match.gameMode ?? MOCK_GAME_MODE_LABEL[lang === 'en' ? 'en' : 'zh'],
+  }));
+  const metrics = summarizeDashboard(localizedHeroPerformance, localizedRecentMatches);
+  const achievementTotals = localizedRecentMatches.reduce(
     (acc, match) => {
       const rampageCount = toFiniteOrNull(match?.rampageCount);
       const godlikeCount = toFiniteOrNull(match?.godlikeCount);
@@ -145,9 +156,11 @@ const createMockDashboard = (copy, lang = 'zh') => {
     totalMatches: metrics.totalMatches,
     heroPerformance: localizedHeroPerformance,
     dailyWinRate,
+    dailyKdaTrend,
+    dailyGpmTrend,
     rankDistribution,
-    recentMatches,
-    windowMatches: recentMatches,
+    recentMatches: localizedRecentMatches,
+    windowMatches: localizedRecentMatches,
     metrics,
     achievementTotals,
   };
@@ -850,6 +863,10 @@ function App() {
       { rampage: 0, godlike: 0, rampageDataAvailable: false, godlikeDataAvailable: false }
     );
   }, [dashboard.achievementTotals, dashboard.windowMatches]);
+  const overviewGameModeDistribution = useMemo(
+    () => buildGameModeDistribution(dashboard.windowMatches, copy.overview.modeDistribution.unknownMode),
+    [dashboard.windowMatches, copy.overview.modeDistribution.unknownMode]
+  );
   const catalogLocale = lang === 'en' ? 'en' : 'zh';
   const heroCategories = useMemo(
     () => [
@@ -1148,6 +1165,7 @@ function App() {
   const tabItems = [
     { id: TAB_IDS.recentMatches, label: copy.tabs.recentMatches },
     { id: TAB_IDS.heroes, label: copy.tabs.heroes },
+    { id: TAB_IDS.trend, label: copy.tabs.trend },
     { id: TAB_IDS.overview, label: copy.tabs.overview },
     { id: TAB_IDS.allHeroes, label: copy.tabs.allHeroes, rightGroup: true },
     { id: TAB_IDS.allItems, label: copy.tabs.allItems },
@@ -1204,6 +1222,20 @@ function App() {
     }),
     copy.overview.insightBestHero(bestHero.hero),
   ];
+  const kdaTrendCopy = {
+    ...copy.trend,
+    title: copy.trend.kdaTitle,
+    latestValue: copy.trend.latestKda,
+    ariaLabel: copy.trend.kdaAriaLabel,
+    axisValue: copy.trend.kdaAxisValue,
+  };
+  const gpmTrendCopy = {
+    ...copy.trend,
+    title: copy.trend.gpmTitle,
+    latestValue: copy.trend.latestGpm,
+    ariaLabel: copy.trend.gpmAriaLabel,
+    axisValue: copy.trend.gpmAxisValue,
+  };
 
   return (
     <div className="app-shell">
@@ -1552,8 +1584,18 @@ function App() {
             </section>
 
             <section className="two-cols">
-              <WinRateTrend data={dashboard.dailyWinRate} days={days} copy={copy.trend} />
               <RankDistribution items={dashboard.rankDistribution} days={days} copy={copy.rank} />
+              <GameModeDistributionPie items={overviewGameModeDistribution} days={days} copy={copy.overview.modeDistribution} />
+            </section>
+          </section>
+        ) : null}
+
+        {activeTab === TAB_IDS.trend ? (
+          <section id={`panel-${TAB_IDS.trend}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.trend}`} className="tab-content">
+            <WinRateTrend data={dashboard.dailyWinRate} days={days} copy={copy.trend} percentage />
+            <section className="two-cols">
+              <WinRateTrend data={dashboard.dailyKdaTrend ?? []} days={days} copy={kdaTrendCopy} />
+              <WinRateTrend data={dashboard.dailyGpmTrend ?? []} days={days} copy={gpmTrendCopy} />
             </section>
           </section>
         ) : null}
