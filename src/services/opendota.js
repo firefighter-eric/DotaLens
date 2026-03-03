@@ -6,6 +6,7 @@ const RECENT_MATCH_FETCH_LIMIT = 30;
 const ITEM_SLOTS = [0, 1, 2, 3, 4, 5];
 const SKILL_BUILD_LIMIT = 18;
 const MATCH_DETAIL_PLAYER_PROFILE_LIMIT = 10;
+const TEAMMATE_MIN_MATCHES_FOR_WIN_RATE = 20;
 
 const localeConfig = {
   zh: {
@@ -43,10 +44,25 @@ const localeConfig = {
       3: '随机征召',
       4: '单一征召',
       5: '全随机',
-      12: '技能征召',
+      6: '新手教程',
+      7: 'Diretide',
+      8: '反转队长模式',
+      9: 'Greeviling',
+      10: '教程',
+      11: '中路 SO',
+      12: '冷门英雄模式',
+      13: '新手池',
+      14: 'Compendium 比赛',
+      15: '自定义模式',
       16: '队长征召',
-      22: '全英雄随机死亡竞赛',
-      23: '加速',
+      17: '平衡征召',
+      18: '技能征召',
+      19: '活动模式',
+      20: '全随机死亡竞赛',
+      21: '中路 1v1',
+      22: '全阵营征召',
+      23: '快速模式',
+      24: '变异模式',
     },
     lobbyTypeMap: {
       0: '普通匹配',
@@ -99,10 +115,25 @@ const localeConfig = {
       3: 'Random Draft',
       4: 'Single Draft',
       5: 'All Random',
-      12: 'Ability Draft',
+      6: 'Intro',
+      7: 'Diretide',
+      8: "Reverse Captain's Mode",
+      9: 'Greeviling',
+      10: 'Tutorial',
+      11: 'Mid Only',
+      12: 'Least Played',
+      13: 'New Player Pool',
+      14: 'Compendium Matchmaking',
+      15: 'Custom',
       16: "Captain's Draft",
-      22: 'All Random Deathmatch',
+      17: 'Balanced Draft',
+      18: 'Ability Draft',
+      19: 'Event',
+      20: 'All Random Deathmatch',
+      21: '1v1 Mid',
+      22: 'All Draft',
       23: 'Turbo',
+      24: 'Mutation',
     },
     lobbyTypeMap: {
       0: 'Normal Matchmaking',
@@ -441,6 +472,67 @@ const resolvePlayerAvatar = (player, fallback = '') => {
   ];
   const hit = candidates.find((value) => typeof value === 'string' && value.trim());
   return hit ? hit.trim() : fallback;
+};
+
+const resolvePeerDisplayName = (peer, locale) => {
+  if (!peer || typeof peer !== 'object') {
+    return locale.unknownPlayer;
+  }
+  const name = peer.personaname || peer.name;
+  if (isNonEmptyString(name)) {
+    return name.trim();
+  }
+  const accountId = normalizeAccountId(peer.account_id);
+  if (accountId != null) {
+    return `${locale.unknownPlayer} #${accountId}`;
+  }
+  return locale.unknownPlayer;
+};
+
+const buildTeammateSummary = (peers, locale) => {
+  const normalized = toArray(peers)
+    .map((peer) => {
+      const matches = toPositiveCount(peer?.with_games);
+      if (matches <= 0) {
+        return null;
+      }
+
+      const wins = clamp(toPositiveCount(peer?.with_win), 0, matches);
+      const winRate = Number(((wins / matches) * 100).toFixed(1));
+      return {
+        accountId: normalizeAccountId(peer?.account_id),
+        playerName: resolvePeerDisplayName(peer, locale),
+        playerAvatar: resolvePlayerAvatar(peer),
+        matches,
+        wins,
+        winRate,
+      };
+    })
+    .filter(Boolean);
+
+  const mostPlayed =
+    normalized
+      .slice()
+      .sort((a, b) => b.matches - a.matches || b.wins - a.wins || (a.accountId ?? Number.MAX_SAFE_INTEGER) - (b.accountId ?? Number.MAX_SAFE_INTEGER))[0] ??
+    null;
+
+  const candidateOver20 = normalized.filter((entry) => entry.matches > TEAMMATE_MIN_MATCHES_FOR_WIN_RATE);
+  const bestWinRateOver20 =
+    candidateOver20
+      .slice()
+      .sort((a, b) => b.winRate - a.winRate || b.matches - a.matches || b.wins - a.wins || (a.accountId ?? Number.MAX_SAFE_INTEGER) - (b.accountId ?? Number.MAX_SAFE_INTEGER))[0] ??
+    null;
+  const worstWinRateOver20 =
+    candidateOver20
+      .slice()
+      .sort((a, b) => a.winRate - b.winRate || b.matches - a.matches || a.wins - b.wins || (a.accountId ?? Number.MAX_SAFE_INTEGER) - (b.accountId ?? Number.MAX_SAFE_INTEGER))[0] ??
+    null;
+
+  return {
+    mostPlayed,
+    bestWinRateOver20,
+    worstWinRateOver20,
+  };
 };
 
 const extractPlayerProfile = (rawPlayer) => {
@@ -849,6 +941,7 @@ const buildMatchRows = (matches, heroesMetaMap, locale) =>
         xpPerMin: toFiniteOrNull(match.xp_per_min),
         heroDamage: toFiniteOrNull(match.hero_damage),
         durationSec: match.duration ?? 0,
+        gameMode: resolveGameMode(match, locale),
         laneRole: resolveRole(match, locale),
         rank: resolveRank(match, locale),
         rampageCount,
@@ -903,13 +996,15 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
   const locale = getLocaleConfig(lang);
   const client = createOpenDotaClient(lang);
 
-  const [player, matches, latestMatches, heroesMetaMap, counts] = await Promise.all([
+  const [player, matches, latestMatches, heroesMetaMap, counts, peers] = await Promise.all([
     client.getPlayer(accountId, signal),
     client.getPlayerMatchesByDays(accountId, days, signal),
     client.getPlayerLatestMatches(accountId, RECENT_MATCH_FETCH_LIMIT, signal).catch(() => []),
     client.getHeroesMetaMap(signal),
     client.getPlayerCountsByDays(accountId, days, signal).catch(() => null),
+    client.getPlayerPeers(accountId, signal).catch(() => []),
   ]);
+  const teammateSummary = buildTeammateSummary(peers, locale);
   const achievementTotals = mergeAchievementTotals(
     buildAchievementTotalsFromCounts(counts),
     buildAchievementTotalsFromMatches(matches)
@@ -931,6 +1026,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
       windowMatches: [],
       metrics: summarizeDashboard([], []),
       achievementTotals,
+      teammateSummary,
       totalMatches: 0,
       latestMatchStartTime: recentMatches[0]?.startTime ?? null,
     };
@@ -954,6 +1050,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     windowMatches,
     metrics: summarizeDashboard(heroPerformance, windowMatches),
     achievementTotals,
+    teammateSummary,
     totalMatches: validMatches.length,
     latestMatchStartTime: validMatches[0]?.start_time ?? null,
   };

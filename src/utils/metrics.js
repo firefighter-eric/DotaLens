@@ -129,6 +129,7 @@ export const summarizeDashboard = (heroData, windowMatches = []) => {
       overallWinRate: '0.0',
       avgKda: '0.00',
       avgGpm: null,
+      avgXpm: null,
       longestWinStreak: streaks.longestWinStreak,
       longestLossStreak: streaks.longestLossStreak,
       bestHero: {
@@ -140,9 +141,25 @@ export const summarizeDashboard = (heroData, windowMatches = []) => {
         hero: '-',
         impact: 0,
         avgGpm: null,
+        matches: 0,
+        winRate: '0.0',
+        heroAvatar: '',
       },
       mostPlayedHero: {
         hero: '-',
+        heroAvatar: '',
+        matches: 0,
+        winRate: '0.0',
+      },
+      signatureHero: {
+        hero: '-',
+        heroAvatar: '',
+        matches: 0,
+        winRate: '0.0',
+      },
+      antiSignatureHero: {
+        hero: '-',
+        heroAvatar: '',
         matches: 0,
         winRate: '0.0',
       },
@@ -165,28 +182,93 @@ export const summarizeDashboard = (heroData, windowMatches = []) => {
         acc.gpm += hero.avgGpm * matches;
         acc.gpmCount += matches;
       }
+      if (Number.isFinite(hero.avgXpm) && matches !== null && matches > 0) {
+        acc.xpm += hero.avgXpm * matches;
+        acc.xpmCount += matches;
+      }
       return acc;
     },
-    { matches: 0, wins: 0, totalKa: 0, totalDeaths: 0, gpm: 0, gpmCount: 0 }
+    { matches: 0, wins: 0, totalKa: 0, totalDeaths: 0, gpm: 0, gpmCount: 0, xpm: 0, xpmCount: 0 }
   );
 
   const bestHero = [...heroData].sort((a, b) => b.impact - a.impact)[0];
-  const worstHero = [...heroData].sort((a, b) => a.impact - b.impact)[0];
+  const worstHeroCandidates = heroData.filter((hero) => Number(hero?.matches) >= 2);
+  const worstHero =
+    (worstHeroCandidates.length > 0
+      ? [...worstHeroCandidates].sort((a, b) => {
+          const aWinRate = a.wins / Math.max(1, a.matches);
+          const bWinRate = b.wins / Math.max(1, b.matches);
+          if (aWinRate !== bWinRate) {
+            return aWinRate - bWinRate;
+          }
+          if (b.matches !== a.matches) {
+            return b.matches - a.matches;
+          }
+          return String(a.hero ?? '').localeCompare(String(b.hero ?? ''));
+        })[0]
+      : null) ?? {
+      hero: '-',
+      impact: 0,
+      avgGpm: null,
+      matches: 0,
+      wins: 0,
+      heroAvatar: '',
+    };
   const mostPlayedHero = [...heroData].sort((a, b) => b.matches - a.matches)[0];
+  const topByMatches = [...heroData].sort((a, b) => b.matches - a.matches);
+  const topTenPercentCount = Math.max(1, Math.ceil(topByMatches.length * 0.1));
+  const signatureHero = topByMatches
+    .slice(0, topTenPercentCount)
+    .sort((a, b) => {
+      const winRateDiff = b.wins / Math.max(1, b.matches) - a.wins / Math.max(1, a.matches);
+      if (winRateDiff !== 0) {
+        return winRateDiff;
+      }
+      if (b.matches !== a.matches) {
+        return b.matches - a.matches;
+      }
+      return String(a.hero ?? '').localeCompare(String(b.hero ?? ''));
+    })[0];
+  const antiSignatureHero = topByMatches
+    .slice(0, topTenPercentCount)
+    .sort((a, b) => {
+      const winRateDiff = a.wins / Math.max(1, a.matches) - b.wins / Math.max(1, b.matches);
+      if (winRateDiff !== 0) {
+        return winRateDiff;
+      }
+      if (b.matches !== a.matches) {
+        return b.matches - a.matches;
+      }
+      return String(a.hero ?? '').localeCompare(String(b.hero ?? ''));
+    })[0];
 
   return {
     totalMatches: totals.matches,
     overallWinRate: toPercent(totals.wins, totals.matches),
     avgKda: (totals.totalKa / Math.max(1, totals.totalDeaths)).toFixed(2),
     avgGpm: totals.gpmCount > 0 ? Math.round(totals.gpm / totals.gpmCount) : null,
+    avgXpm: totals.xpmCount > 0 ? Math.round(totals.xpm / totals.xpmCount) : null,
     longestWinStreak: streaks.longestWinStreak,
     longestLossStreak: streaks.longestLossStreak,
     bestHero,
     worstHero,
     mostPlayedHero: {
       hero: mostPlayedHero.hero,
+      heroAvatar: mostPlayedHero.heroAvatar ?? '',
       matches: mostPlayedHero.matches,
       winRate: toPercent(mostPlayedHero.wins, mostPlayedHero.matches),
+    },
+    signatureHero: {
+      hero: signatureHero.hero,
+      heroAvatar: signatureHero.heroAvatar ?? '',
+      matches: signatureHero.matches,
+      winRate: toPercent(signatureHero.wins, signatureHero.matches),
+    },
+    antiSignatureHero: {
+      hero: antiSignatureHero.hero,
+      heroAvatar: antiSignatureHero.heroAvatar ?? '',
+      matches: antiSignatureHero.matches,
+      winRate: toPercent(antiSignatureHero.wins, antiSignatureHero.matches),
     },
   };
 };
@@ -214,6 +296,40 @@ export const buildRoleDistribution = (heroData) => {
       ratio: Number(((matches / totalMatches) * 100).toFixed(1)),
     }))
     .sort((a, b) => b.ratio - a.ratio);
+};
+
+export const summarizeSideWinRates = (matches) => {
+  const safeMatches = Array.isArray(matches) ? matches : [];
+  const totals = safeMatches.reduce(
+    (acc, match) => {
+      const playerSlot = Number(match?.playerSlot);
+      if (!Number.isFinite(playerSlot) || (match?.result !== 'win' && match?.result !== 'loss')) {
+        return acc;
+      }
+
+      const side = playerSlot < 128 ? 'radiant' : 'dire';
+      acc[side].matches += 1;
+      acc[side].wins += match.result === 'win' ? 1 : 0;
+      return acc;
+    },
+    {
+      radiant: { wins: 0, matches: 0 },
+      dire: { wins: 0, matches: 0 },
+    }
+  );
+
+  return {
+    radiant: {
+      wins: totals.radiant.wins,
+      matches: totals.radiant.matches,
+      winRate: totals.radiant.matches > 0 ? toPercent(totals.radiant.wins, totals.radiant.matches) : null,
+    },
+    dire: {
+      wins: totals.dire.wins,
+      matches: totals.dire.matches,
+      winRate: totals.dire.matches > 0 ? toPercent(totals.dire.wins, totals.dire.matches) : null,
+    },
+  };
 };
 
 export const summarizeRecentMatches = (matches) => {

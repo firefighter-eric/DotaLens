@@ -6,6 +6,8 @@ const PLAYER_MATCH_PROJECT_FIELDS = [
   'match_id',
   'start_time',
   'duration',
+  'game_mode',
+  'lobby_type',
   'player_slot',
   'hero_id',
   'kills',
@@ -228,6 +230,7 @@ export const createOpenDotaClient = (lang = 'zh') => {
 
   return {
     getPlayer: (accountId, signal) => fetchJson(`/players/${accountId}`, signal, locale),
+    getPlayerPeers: (accountId, signal) => fetchJson(`/players/${accountId}/peers`, signal, locale),
     getMatchById: (matchId, signal) => fetchJson(`/matches/${matchId}`, signal, locale),
     getPlayerCountsByDays: (accountId, days, signal) => {
       const safeDays = toPositiveInt(days, 14);

@@ -32,6 +32,7 @@ const fallbackCopy = {
   timeTags: {
     today: '今天',
     yesterday: '昨天',
+    within3Days: '3天内',
     within7Days: '7天内',
     within30Days: '30天内',
   },
@@ -93,6 +94,9 @@ const resolveMatchTimeTag = (startTime, boundaries, labels) => {
   if (matchDayStartMs === boundaries.yesterdayStartMs) {
     return { key: 'yesterday', label: labels.yesterday };
   }
+  if (diffDays <= 3) {
+    return { key: 'within3Days', label: labels.within3Days };
+  }
   if (diffDays <= 7) {
     return { key: 'within7Days', label: labels.within7Days };
   }
@@ -133,7 +137,10 @@ function RecentMatchesPanel({
     typeof copy.pageIndicator === 'function'
       ? copy.pageIndicator(safePage, totalPages, pageStart, pageEnd, totalCount)
       : `${safePage}/${totalPages}`;
-  const timeTags = copy.timeTags ?? fallbackCopy.timeTags;
+  const timeTags = {
+    ...fallbackCopy.timeTags,
+    ...(copy.timeTags ?? {}),
+  };
   const now = new Date();
   const timeBoundaries = {
     todayStartMs: getDayStartMs(now),

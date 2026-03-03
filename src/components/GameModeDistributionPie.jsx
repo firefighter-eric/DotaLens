@@ -44,7 +44,7 @@ function GameModeDistributionPie({ items, days = 30, copy = fallbackCopy }) {
           </div>
           <div className="game-mode-legend">
             {items.map((item, index) => (
-              <div key={item.mode} className="game-mode-legend-item">
+              <div key={`${item.mode}-${index}`} className="game-mode-legend-item">
                 <i style={{ background: PIE_COLORS[index % PIE_COLORS.length] }} />
                 <div className="game-mode-legend-meta">
                   <span>{item.mode}</span>
