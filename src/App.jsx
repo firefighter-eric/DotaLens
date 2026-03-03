@@ -10,7 +10,7 @@ import CatalogListPanel from './components/CatalogListPanel.jsx';
 import { dailyGpmTrend, dailyKdaTrend, dailyWinRate, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
 import { heroCatalog } from './data/heroCatalog.js';
 import { itemCatalog } from './data/itemCatalog.js';
-import { buildGameModeDistribution, summarizeDashboard, summarizeOverviewExtremes, summarizeRecentMatches } from './utils/metrics.js';
+import { buildGameModeDistribution, summarizeDashboard, summarizeOverviewExtremes, summarizeRecentMatches, summarizeSideWinRates } from './utils/metrics.js';
 import { fetchPlayerWindowAnalytics, fetchRecentMatchDetail } from './services/opendota.js';
 import { createOpenDotaClient } from './services/opendotaClient.js';
 import { getCopy } from './i18n/copy.js';
@@ -163,20 +163,32 @@ const createMockDashboard = (copy, lang = 'zh') => {
     windowMatches: localizedRecentMatches,
     metrics,
     achievementTotals,
-  };
-};
-
-const parseOpenDotaId = (value, copy) => {
-  if (!/^\d+$/.test(value)) {
-    return {
-      valid: false,
-      message: copy.errors.openDotaNumeric,
-    };
-  }
-
-  return {
-    valid: true,
-    accountId: value,
+    teammateSummary: {
+      mostPlayed: {
+        accountId: 1,
+        playerName: lang === 'en' ? 'Teammate A' : '队友 A',
+        playerAvatar: '',
+        matches: 28,
+        wins: 16,
+        winRate: 57.1,
+      },
+      worstWinRateOver20: {
+        accountId: 3,
+        playerName: lang === 'en' ? 'Teammate C' : '队友 C',
+        playerAvatar: '',
+        matches: 22,
+        wins: 7,
+        winRate: 31.8,
+      },
+      bestWinRateOver20: {
+        accountId: 2,
+        playerName: lang === 'en' ? 'Teammate B' : '队友 B',
+        playerAvatar: '',
+        matches: 26,
+        wins: 19,
+        winRate: 73.1,
+      },
+    },
   };
 };
 
@@ -423,10 +435,9 @@ const escapeCsvCell = (value) => {
   return `"${text.replace(/"/g, '""')}"`;
 };
 
-const isSameAccount = (a, b) => a.accountId === b.accountId && a.rawId === b.rawId && a.idType === b.idType;
+const isSameAccount = (a, b) => a.accountId === b.accountId && a.rawId === b.rawId;
 
 const createDefaultAccount = () => ({
-  idType: 'steam',
   rawId: DEFAULT_STEAM32_ID,
   accountId: DEFAULT_STEAM32_ID,
   nickname: DEFAULT_SAMPLE_PLAYER_NAME,
@@ -438,18 +449,27 @@ const sanitizePersistedAccount = (value) => {
     return null;
   }
 
-  const idType = value.idType === 'steam' || value.idType === 'opendota' ? value.idType : null;
+  const idType = typeof value.idType === 'string' ? value.idType : 'steam';
   const rawId = typeof value.rawId === 'string' ? value.rawId.trim() : '';
   const accountId = typeof value.accountId === 'string' ? value.accountId.trim() : '';
   const nickname = typeof value.nickname === 'string' ? value.nickname.trim() : '';
   const avatar = typeof value.avatar === 'string' ? value.avatar.trim() : '';
 
-  if (!idType || !rawId || !accountId || !/^\d+$/.test(rawId) || !/^\d+$/.test(accountId)) {
+  if (idType !== 'steam' || !rawId || !accountId || !/^\d+$/.test(rawId) || !/^\d+$/.test(accountId)) {
+    return null;
+  }
+
+  try {
+    const rawSteam32 = BigInt(rawId);
+    const accountSteam32 = BigInt(accountId);
+    if (rawSteam32 <= 0n || rawSteam32 > MAX_UINT32 || accountSteam32 <= 0n || accountSteam32 > MAX_UINT32) {
+      return null;
+    }
+  } catch {
     return null;
   }
 
   return {
-    idType,
     rawId,
     accountId,
     nickname: nickname || rawId,
@@ -470,7 +490,7 @@ const sanitizePersistedAccounts = (value) => {
       continue;
     }
 
-    const key = `${account.idType}:${account.rawId}:${account.accountId}`;
+    const key = `${account.rawId}:${account.accountId}`;
     if (seen.has(key)) {
       continue;
     }
@@ -494,11 +514,9 @@ const createDefaultSession = () => {
   const defaultAccount = createDefaultAccount();
   return {
     inputAccountId: defaultAccount.rawId,
-    inputIdType: defaultAccount.idType,
     savedAccounts: [defaultAccount],
     queryAccountId: defaultAccount.accountId,
     queryRawId: defaultAccount.rawId,
-    queryIdType: defaultAccount.idType,
     days: DEFAULT_TIME_WINDOW,
   };
 };
@@ -526,11 +544,9 @@ const loadSessionFromStorage = () => {
 
     return {
       inputAccountId: activeAccount.rawId,
-      inputIdType: activeAccount.idType,
       savedAccounts,
       queryAccountId: activeAccount.accountId,
       queryRawId: activeAccount.rawId,
-      queryIdType: activeAccount.idType,
       days,
     };
   } catch {
@@ -544,12 +560,10 @@ function App() {
 
   const [sessionSeed] = useState(() => loadSessionFromStorage());
   const [inputAccountId, setInputAccountId] = useState(sessionSeed.inputAccountId);
-  const [inputIdType, setInputIdType] = useState(sessionSeed.inputIdType);
   const [savedAccounts, setSavedAccounts] = useState(sessionSeed.savedAccounts);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [queryAccountId, setQueryAccountId] = useState(sessionSeed.queryAccountId);
   const [queryRawId, setQueryRawId] = useState(sessionSeed.queryRawId);
-  const [queryIdType, setQueryIdType] = useState(sessionSeed.queryIdType);
   const [reloadKey, setReloadKey] = useState(0);
   const [days, setDays] = useState(sessionSeed.days);
   const [activeTab, setActiveTab] = useState(TAB_IDS.recentMatches);
@@ -598,7 +612,6 @@ function App() {
         JSON.stringify({
           savedAccounts,
           activeAccount: {
-            idType: queryIdType,
             rawId: queryRawId,
             accountId: queryAccountId,
           },
@@ -608,7 +621,7 @@ function App() {
     } catch {
       // Ignore localStorage write failures (for example, privacy mode restrictions).
     }
-  }, [savedAccounts, queryAccountId, queryRawId, queryIdType, days]);
+  }, [savedAccounts, queryAccountId, queryRawId, days]);
 
   useEffect(() => {
     if (dashboard.source === 'mock') {
@@ -867,6 +880,7 @@ function App() {
     () => buildGameModeDistribution(dashboard.windowMatches, copy.overview.modeDistribution.unknownMode),
     [dashboard.windowMatches, copy.overview.modeDistribution.unknownMode]
   );
+  const sideWinRates = useMemo(() => summarizeSideWinRates(dashboard.windowMatches ?? []), [dashboard.windowMatches]);
   const catalogLocale = lang === 'en' ? 'en' : 'zh';
   const heroCategories = useMemo(
     () => [
@@ -995,15 +1009,10 @@ function App() {
   }, [catalogLocale, copy.catalog, itemCategories]);
 
   const switchToAccount = (account, forceRefresh = false) => {
-    setInputIdType(account.idType);
     setInputAccountId(account.rawId);
     setError('');
 
-    if (
-      account.accountId === queryAccountId &&
-      account.rawId === queryRawId &&
-      account.idType === queryIdType
-    ) {
+    if (account.accountId === queryAccountId && account.rawId === queryRawId) {
       if (forceRefresh) {
         setReloadKey((value) => value + 1);
       }
@@ -1012,15 +1021,13 @@ function App() {
 
     setQueryAccountId(account.accountId);
     setQueryRawId(account.rawId);
-    setQueryIdType(account.idType);
   };
 
   const handleSubmit = (event) => {
     event.preventDefault();
     const normalizedId = inputAccountId.trim();
 
-    const parseResult =
-      inputIdType === 'opendota' ? parseOpenDotaId(normalizedId, copy) : parseSteam32(normalizedId, copy);
+    const parseResult = parseSteam32(normalizedId, copy);
     if (!parseResult.valid) {
       setError(parseResult.message);
       return;
@@ -1028,7 +1035,6 @@ function App() {
 
     const { accountId } = parseResult;
     const nextAccount = {
-      idType: inputIdType,
       rawId: normalizedId,
       accountId,
       nickname: normalizedId,
@@ -1066,7 +1072,7 @@ function App() {
     }
 
     setSavedAccounts(next);
-    const activeAccount = { idType: queryIdType, rawId: queryRawId, accountId: queryAccountId };
+    const activeAccount = { rawId: queryRawId, accountId: queryAccountId };
     if (isSameAccount(account, activeAccount)) {
       switchToAccount(next[0], false);
     }
@@ -1180,26 +1186,24 @@ function App() {
             days,
             latestMatchDate: formatMatchDate(dashboard.latestMatchStartTime, lang),
           })
-        : queryIdType === 'steam'
-        ? copy.status.steam({
+        : copy.status.steam({
             playerName: dashboard.playerName,
             rawId: queryRawId,
             days,
             totalMatches: dashboard.totalMatches,
           })
-        : copy.status.opendota({
-            playerName: dashboard.playerName,
-            accountId: queryAccountId,
-            days,
-            totalMatches: dashboard.totalMatches,
-          })
       : copy.status.mock;
 
-  const bestHero = dashboard.metrics.bestHero;
   const worstHero = dashboard.metrics.worstHero;
   const mostPlayedHero = dashboard.metrics.mostPlayedHero;
-  const bestHeroAvgGpm = Number.isFinite(bestHero.avgGpm) ? bestHero.avgGpm : copy.recentMatches.emptyValue;
-  const worstHeroAvgGpm = Number.isFinite(worstHero.avgGpm) ? worstHero.avgGpm : copy.recentMatches.emptyValue;
+  const signatureHero = dashboard.metrics.signatureHero;
+  const antiSignatureHero = dashboard.metrics.antiSignatureHero;
+  const avgGpm = Number.isFinite(dashboard.metrics.avgGpm) ? dashboard.metrics.avgGpm : copy.recentMatches.emptyValue;
+  const avgXpm = Number.isFinite(dashboard.metrics.avgXpm) ? dashboard.metrics.avgXpm : copy.recentMatches.emptyValue;
+  const worstHeroWinRate =
+    Number.isFinite(worstHero?.wins) && Number.isFinite(worstHero?.matches) && worstHero.matches > 0
+      ? ((worstHero.wins / worstHero.matches) * 100).toFixed(1)
+      : '0.0';
   const emptyValue = copy.recentMatches.emptyValue;
   const highestDamageMatch = overviewExtremes.highestDamageMatch;
   const mostKillsMatch = overviewExtremes.mostKillsMatch;
@@ -1209,18 +1213,19 @@ function App() {
     { id: 'mostKills', label: copy.cards.mostKillsMatch, match: mostKillsMatch },
     { id: 'mostDeaths', label: copy.cards.mostDeathsMatch, match: mostDeathsMatch },
   ].filter((item) => item.match);
-  const activeAccount = savedAccounts.find(
-    (account) => account.accountId === queryAccountId && account.rawId === queryRawId && account.idType === queryIdType
-  );
+  const activeAccount = savedAccounts.find((account) => account.accountId === queryAccountId && account.rawId === queryRawId);
   const activeAccountNickname = activeAccount?.nickname || dashboard.playerName || queryRawId || copy.query.unknownNickname;
   const activeAccountAvatar = activeAccount?.avatar || dashboard.playerAvatar || '';
   const activeAccountAvatarFallback = getAvatarInitial(activeAccountNickname);
   const overviewInsights = [
+    copy.overview.insightRecentMatches({
+      totalMatches: dashboard.metrics.totalMatches,
+      days,
+    }),
     copy.overview.insightWinRate({
       overallWinRate: dashboard.metrics.overallWinRate,
       totalMatches: dashboard.metrics.totalMatches,
     }),
-    copy.overview.insightBestHero(bestHero.hero),
   ];
   const kdaTrendCopy = {
     ...copy.trend,
@@ -1236,6 +1241,12 @@ function App() {
     ariaLabel: copy.trend.gpmAriaLabel,
     axisValue: copy.trend.gpmAxisValue,
   };
+  const teammateSummary = dashboard.teammateSummary ?? {};
+  const mostPlayedTeammate = teammateSummary.mostPlayed ?? null;
+  const bestWinRateTeammate = teammateSummary.bestWinRateOver20 ?? null;
+  const worstWinRateTeammate = teammateSummary.worstWinRateOver20 ?? null;
+  const radiantWinRateText = sideWinRates.radiant.winRate === null ? emptyValue : `${sideWinRates.radiant.winRate}%`;
+  const direWinRateText = sideWinRates.dire.winRate === null ? emptyValue : `${sideWinRates.dire.winRate}%`;
 
   return (
     <div className="app-shell">
@@ -1301,31 +1312,13 @@ function App() {
               </button>
             </div>
             <form className="query-form" onSubmit={handleSubmit}>
-              <label htmlFor="account-id-input">{copy.query.idTypeLabel}</label>
-              <div className="id-type-switch" role="group" aria-label={copy.query.idTypeLabel}>
-                <button
-                  type="button"
-                  className={inputIdType === 'steam' ? 'is-active' : ''}
-                  onClick={() => setInputIdType('steam')}
-                  disabled={loading}
-                >
-                  {copy.query.idTypes.steam}
-                </button>
-                <button
-                  type="button"
-                  className={inputIdType === 'opendota' ? 'is-active' : ''}
-                  onClick={() => setInputIdType('opendota')}
-                  disabled={loading}
-                >
-                  {copy.query.idTypes.opendota}
-                </button>
-              </div>
+              <label htmlFor="account-id-input">{copy.query.accountIdLabel}</label>
               <div className="query-controls">
                 <input
                   id="account-id-input"
                   type="text"
                   inputMode="numeric"
-                  placeholder={copy.query.placeholders[inputIdType]}
+                  placeholder={copy.query.accountIdPlaceholder}
                   value={inputAccountId}
                   onChange={(event) => setInputAccountId(event.target.value)}
                 />
@@ -1339,15 +1332,12 @@ function App() {
               </div>
               <div className="saved-accounts" role="list" aria-label={copy.query.savedAccountsAriaLabel}>
                 {savedAccounts.map((account) => {
-                  const isActive =
-                    account.accountId === queryAccountId &&
-                    account.rawId === queryRawId &&
-                    account.idType === queryIdType;
+                  const isActive = account.accountId === queryAccountId && account.rawId === queryRawId;
                   const accountName = account.nickname || account.rawId;
                   const accountAvatarFallback = getAvatarInitial(accountName);
 
                   return (
-                    <div key={`${account.idType}:${account.rawId}`} className={`saved-account-item ${isActive ? 'is-active' : ''}`}>
+                    <div key={`${account.rawId}:${account.accountId}`} className={`saved-account-item ${isActive ? 'is-active' : ''}`}>
                       <button
                         type="button"
                         className="saved-account-btn"
@@ -1363,7 +1353,7 @@ function App() {
                           <span className="saved-account-text">
                             <span className="saved-account-name">{accountName}</span>
                             <span className="saved-account-meta">
-                              {copy.query.idTypes[account.idType]} · {account.rawId}
+                              {copy.query.steamLabel} · {account.rawId}
                             </span>
                           </span>
                         </span>
@@ -1458,18 +1448,33 @@ function App() {
                 subtext={copy.cards.overallWinRateSubtext}
                 accent="teal"
               />
+              <StatCard
+                label={copy.cards.sideWinRate}
+                value={`${radiantWinRateText} / ${direWinRateText}`}
+                subtext={copy.cards.sideWinRateSubtext({
+                  radiantMatches: sideWinRates.radiant.matches,
+                  direMatches: sideWinRates.dire.matches,
+                })}
+                accent="teal"
+              />
               <StatCard label={copy.cards.avgKda} value={dashboard.metrics.avgKda} subtext={copy.cards.avgKdaSubtext} accent="red" />
               <StatCard
-                label={copy.cards.bestHero}
-                value={bestHero.hero}
-                subtext={copy.cards.bestHeroSubtext({ impact: bestHero.impact, avgGpm: bestHeroAvgGpm })}
+                label={copy.cards.avgGpm}
+                value={`${avgGpm} / ${avgXpm}`}
+                subtext={copy.cards.avgGpmSubtext}
                 accent="blue"
               />
               <StatCard
-                label={copy.cards.worstHero}
-                value={worstHero.hero}
-                subtext={copy.cards.worstHeroSubtext({ impact: worstHero.impact, avgGpm: worstHeroAvgGpm })}
-                accent="red"
+                label={copy.cards.signatureHero}
+                value={signatureHero.hero}
+                subtext={copy.cards.signatureHeroSubtext({
+                  matches: signatureHero.matches,
+                  winRate: signatureHero.winRate,
+                })}
+                accent="blue"
+                showAvatar
+                avatar={signatureHero.heroAvatar}
+                avatarAlt={signatureHero.hero}
               />
               <StatCard
                 label={copy.cards.mostPlayedHero}
@@ -1479,6 +1484,30 @@ function App() {
                   winRate: mostPlayedHero.winRate,
                 })}
                 accent="teal"
+                showAvatar
+                avatar={mostPlayedHero.heroAvatar}
+                avatarAlt={mostPlayedHero.hero}
+              />
+              <StatCard
+                label={copy.cards.worstHero}
+                value={worstHero.hero}
+                subtext={copy.cards.worstHeroSubtext({ matches: worstHero.matches ?? 0, winRate: worstHeroWinRate })}
+                accent="red"
+                showAvatar
+                avatar={worstHero.heroAvatar}
+                avatarAlt={worstHero.hero}
+              />
+              <StatCard
+                label={copy.cards.antiSignatureHero}
+                value={antiSignatureHero.hero}
+                subtext={copy.cards.antiSignatureHeroSubtext({
+                  matches: antiSignatureHero.matches,
+                  winRate: antiSignatureHero.winRate,
+                })}
+                accent="red"
+                showAvatar
+                avatar={antiSignatureHero.heroAvatar}
+                avatarAlt={antiSignatureHero.hero}
               />
               <StatCard
                 label={copy.cards.longestWinStreak}
@@ -1511,6 +1540,51 @@ function App() {
                 }
                 subtext={copy.cards.godlikeCountSubtext(days)}
                 accent="gold"
+              />
+              <StatCard
+                label={copy.cards.mostPlayedTeammate}
+                value={mostPlayedTeammate?.playerName ?? copy.recentMatches.emptyValue}
+                subtext={
+                  mostPlayedTeammate
+                    ? copy.cards.mostPlayedTeammateSubtext({ matches: mostPlayedTeammate.matches })
+                    : copy.cards.teammateNoData
+                }
+                accent="teal"
+                showAvatar
+                avatar={mostPlayedTeammate?.playerAvatar ?? ''}
+                avatarAlt={mostPlayedTeammate?.playerName ?? copy.recentMatches.emptyValue}
+              />
+              <StatCard
+                label={copy.cards.bestWinRateTeammate}
+                value={bestWinRateTeammate?.playerName ?? copy.recentMatches.emptyValue}
+                subtext={
+                  bestWinRateTeammate
+                    ? copy.cards.bestWinRateTeammateSubtext({
+                        winRate: bestWinRateTeammate.winRate,
+                        matches: bestWinRateTeammate.matches,
+                      })
+                    : copy.cards.teammateNoData
+                }
+                accent="gold"
+                showAvatar
+                avatar={bestWinRateTeammate?.playerAvatar ?? ''}
+                avatarAlt={bestWinRateTeammate?.playerName ?? copy.recentMatches.emptyValue}
+              />
+              <StatCard
+                label={copy.cards.worstWinRateTeammate}
+                value={worstWinRateTeammate?.playerName ?? copy.recentMatches.emptyValue}
+                subtext={
+                  worstWinRateTeammate
+                    ? copy.cards.worstWinRateTeammateSubtext({
+                        winRate: worstWinRateTeammate.winRate,
+                        matches: worstWinRateTeammate.matches,
+                      })
+                    : copy.cards.teammateNoData
+                }
+                accent="red"
+                showAvatar
+                avatar={worstWinRateTeammate?.playerAvatar ?? ''}
+                avatarAlt={worstWinRateTeammate?.playerName ?? copy.recentMatches.emptyValue}
               />
             </section>
 

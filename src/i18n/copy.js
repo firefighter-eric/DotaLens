@@ -17,21 +17,11 @@ const copy = {
       openAccountModal: '打开账号弹窗',
       closeAccountModal: '关闭账号弹窗',
       unknownNickname: '未命名账号',
-      idTypeLabel: '玩家 ID 类型',
-      idTypes: {
-        steam: 'Steam32',
-        opendota: 'OpenDota ID',
-      },
-      placeholders: {
-        steam: '例如：898754153',
-        opendota: '例如：86745912',
-      },
+      accountIdLabel: 'Steam32',
+      accountIdPlaceholder: '例如：898754153',
+      steamLabel: 'Steam32',
       submit: '开始分析',
       loading: '分析中...',
-      hints: {
-        steam: '使用 Steam32（32 位 account_id）。',
-        opendota: '使用 OpenDota 账号 ID（account_id）。',
-      },
       rangeAriaLabel: '时间窗口切换',
       day14: '14 天',
       day30: '30 天',
@@ -93,11 +83,9 @@ const copy = {
       },
     },
     status: {
-      mock: '当前展示的是示例数据。输入 OpenDota ID 或 Steam32 后可查看真实比赛分析。',
+      mock: '当前展示的是示例数据。输入 Steam32 后可查看真实比赛分析。',
       steam: ({ playerName, rawId, days, totalMatches }) =>
         `当前玩家：${playerName}（Steam32: ${rawId}），统计窗口：最近 ${days} 天，共 ${totalMatches} 场。`,
-      opendota: ({ playerName, accountId, days, totalMatches }) =>
-        `当前玩家：${playerName}（OpenDota ID: ${accountId}），统计窗口：最近 ${days} 天，共 ${totalMatches} 场。`,
       noRecentMatches: ({ playerName, days, latestMatchDate }) =>
         latestMatchDate
           ? `当前玩家：${playerName}。最近 ${days} 天暂无公开比赛，最近一场时间：${latestMatchDate}。`
@@ -119,6 +107,8 @@ const copy = {
         matchesLabel: (count) => `${count} 场`,
         unknownMode: '未知模式',
       },
+      insightRecentMatches: ({ totalMatches, days }) =>
+        days >= 365 ? `最近一年打过 ${totalMatches} 把。` : `最近 ${days} 天打过 ${totalMatches} 把。`,
       insightWinRate: ({ overallWinRate, totalMatches }) => `最近 ${totalMatches} 场综合胜率为 ${overallWinRate}%。`,
       insightBestHero: (hero) => `当前最高价值英雄为 ${hero}。`,
       insightTopRole: (role) => `主要分路分布集中在 ${role}。`,
@@ -129,17 +119,27 @@ const copy = {
       totalMatchesSubtext: (days) => `来自最近 ${days} 天的统计样本`,
       overallWinRate: '综合胜率',
       overallWinRateSubtext: '按总胜场/总场次直接计算',
+      sideWinRate: '天辉/夜魇胜率',
+      sideWinRateSubtext: ({ radiantMatches, direMatches }) => `天辉 ${radiantMatches} 场 / 夜魇 ${direMatches} 场`,
+      radiantLabel: '天辉',
+      direLabel: '夜魇',
       avgKda: '平均 KDA',
       avgKdaSubtext: '按总(K+A)/总D计算',
+      avgGpm: '平均 GPM / XPM',
+      avgGpmSubtext: '按对局样本加权平均（GPM / XPM）',
       highestDamageMatch: '最高伤害场次',
       mostKillsMatch: '最多击杀场次',
       mostDeathsMatch: '最多死亡场次',
       bestHero: '最高价值英雄',
       bestHeroSubtext: ({ impact, avgGpm }) => `影响力 ${impact} / 平均 GPM ${avgGpm}`,
       worstHero: '最菜英雄',
-      worstHeroSubtext: ({ impact, avgGpm }) => `影响力 ${impact} / 平均 GPM ${avgGpm}`,
+      worstHeroSubtext: ({ matches, winRate }) => `至少 2 场样本里最低胜率 · ${matches} 场 / ${winRate}%`,
       mostPlayedHero: '最常玩英雄',
       mostPlayedHeroSubtext: ({ matches, winRate }) => `${matches} 场 / 胜率 ${winRate}%`,
+      signatureHero: '绝活英雄',
+      signatureHeroSubtext: ({ matches, winRate }) => `出场前10%英雄中胜率最高 · ${matches} 场 / ${winRate}%`,
+      antiSignatureHero: '又菜又爱玩',
+      antiSignatureHeroSubtext: ({ matches, winRate }) => `出场前10%英雄中胜率最低 · ${matches} 场 / ${winRate}%`,
       longestWinStreak: '最长连胜',
       longestWinStreakSubtext: (days) => `最近 ${days} 天内最高连续胜场`,
       longestLossStreak: '最长连败',
@@ -148,6 +148,13 @@ const copy = {
       rampageCountSubtext: (days) => `最近 ${days} 天内触发`,
       godlikeCount: '超神次数',
       godlikeCountSubtext: (days) => `最近 ${days} 天内触发`,
+      mostPlayedTeammate: '最多同队队友',
+      mostPlayedTeammateSubtext: ({ matches }) => `历史公开对局中同队 ${matches} 场`,
+      bestWinRateTeammate: '最强队友',
+      bestWinRateTeammateSubtext: ({ winRate, matches }) => `同队 >20 场里胜率最高 · ${winRate}% / ${matches} 场`,
+      worstWinRateTeammate: '最坑队友',
+      worstWinRateTeammateSubtext: ({ winRate, matches }) => `同队 >20 场里胜率最低 · ${winRate}% / ${matches} 场`,
+      teammateNoData: '暂无满足同队 >20 场的队友数据',
     },
     trend: {
       title: (days) => `${days} 天胜率走势`,
@@ -336,7 +343,6 @@ const copy = {
       emptyValue: '-',
     },
     errors: {
-      openDotaNumeric: '请输入纯数字的 OpenDota 用户 ID。',
       steamNumeric: 'Steam32 需要输入纯数字 ID。',
       steamInvalid: 'Steam32 格式不正确，请检查输入。',
       accountLimit: (max) => `最多同时登录 ${max} 个账号，请先移除一个账号。`,
@@ -365,21 +371,11 @@ const copy = {
       openAccountModal: 'Open account modal',
       closeAccountModal: 'Close account modal',
       unknownNickname: 'Unnamed Account',
-      idTypeLabel: 'Player ID Type',
-      idTypes: {
-        steam: 'Steam32',
-        opendota: 'OpenDota ID',
-      },
-      placeholders: {
-        steam: 'Example: 898754153',
-        opendota: 'Example: 86745912',
-      },
+      accountIdLabel: 'Steam32',
+      accountIdPlaceholder: 'Example: 898754153',
+      steamLabel: 'Steam32',
       submit: 'Analyze',
       loading: 'Analyzing...',
-      hints: {
-        steam: 'Use Steam32 (32-bit account_id).',
-        opendota: 'Use OpenDota account_id.',
-      },
       rangeAriaLabel: 'Time window switch',
       day14: '14 Days',
       day30: '30 Days',
@@ -440,11 +436,9 @@ const copy = {
       },
     },
     status: {
-      mock: 'Showing sample data. Enter OpenDota ID or Steam32 to analyze real public matches.',
+      mock: 'Showing sample data. Enter Steam32 to analyze real public matches.',
       steam: ({ playerName, rawId, days, totalMatches }) =>
         `Player: ${playerName} (Steam32: ${rawId}), window: last ${days} days, ${totalMatches} matches.`,
-      opendota: ({ playerName, accountId, days, totalMatches }) =>
-        `Player: ${playerName} (OpenDota ID: ${accountId}), window: last ${days} days, ${totalMatches} matches.`,
       noRecentMatches: ({ playerName, days, latestMatchDate }) =>
         latestMatchDate
           ? `Player: ${playerName}. No public matches in the last ${days} days. Latest match: ${latestMatchDate}.`
@@ -466,6 +460,8 @@ const copy = {
         matchesLabel: (count) => `${count} matches`,
         unknownMode: 'Unknown',
       },
+      insightRecentMatches: ({ totalMatches, days }) =>
+        days >= 365 ? `Played ${totalMatches} matches in the last year.` : `Played ${totalMatches} matches in the last ${days} days.`,
       insightWinRate: ({ overallWinRate, totalMatches }) =>
         `Overall win rate is ${overallWinRate}% across ${totalMatches} matches.`,
       insightBestHero: (hero) => `Top value hero is ${hero}.`,
@@ -477,17 +473,30 @@ const copy = {
       totalMatchesSubtext: (days) => `Sample from the last ${days} days`,
       overallWinRate: 'Overall Win Rate',
       overallWinRateSubtext: 'Calculated directly as total wins / total matches',
+      sideWinRate: 'Radiant/Dire Win Rate',
+      sideWinRateSubtext: ({ radiantMatches, direMatches }) =>
+        `Radiant ${radiantMatches} matches / Dire ${direMatches} matches`,
+      radiantLabel: 'Radiant',
+      direLabel: 'Dire',
       avgKda: 'Average KDA',
       avgKdaSubtext: 'Calculated as total (K+A) / total deaths',
+      avgGpm: 'Average GPM / XPM',
+      avgGpmSubtext: 'Weighted average over sampled matches (GPM / XPM)',
       highestDamageMatch: 'Highest Damage Match',
       mostKillsMatch: 'Most Kills Match',
       mostDeathsMatch: 'Most Deaths Match',
       bestHero: 'Top Value Hero',
       bestHeroSubtext: ({ impact, avgGpm }) => `Impact ${impact} / Avg GPM ${avgGpm}`,
       worstHero: 'Worst Hero',
-      worstHeroSubtext: ({ impact, avgGpm }) => `Impact ${impact} / Avg GPM ${avgGpm}`,
+      worstHeroSubtext: ({ matches, winRate }) => `Lowest win rate among heroes with at least 2 matches · ${matches} matches / ${winRate}%`,
       mostPlayedHero: 'Most Played Hero',
       mostPlayedHeroSubtext: ({ matches, winRate }) => `${matches} matches / Win rate ${winRate}%`,
+      signatureHero: 'Signature Hero',
+      signatureHeroSubtext: ({ matches, winRate }) =>
+        `Highest win rate among top 10% most-played heroes · ${matches} matches / ${winRate}%`,
+      antiSignatureHero: 'Most Played, Lowest Win Rate',
+      antiSignatureHeroSubtext: ({ matches, winRate }) =>
+        `Lowest win rate among top 10% most-played heroes · ${matches} matches / ${winRate}%`,
       longestWinStreak: 'Longest Win Streak',
       longestWinStreakSubtext: (days) => `Max consecutive wins in the last ${days} days`,
       longestLossStreak: 'Longest Loss Streak',
@@ -496,6 +505,15 @@ const copy = {
       rampageCountSubtext: (days) => `Triggered in the last ${days} days`,
       godlikeCount: 'Godlikes',
       godlikeCountSubtext: (days) => `Triggered in the last ${days} days`,
+      mostPlayedTeammate: 'Most-Played Teammate',
+      mostPlayedTeammateSubtext: ({ matches }) => `${matches} shared matches in public history`,
+      bestWinRateTeammate: 'Best Teammate',
+      bestWinRateTeammateSubtext: ({ winRate, matches }) =>
+        `Top win rate among teammates with >20 shared matches · ${winRate}% / ${matches} matches`,
+      worstWinRateTeammate: 'Worst Teammate',
+      worstWinRateTeammateSubtext: ({ winRate, matches }) =>
+        `Lowest win rate among teammates with >20 shared matches · ${winRate}% / ${matches} matches`,
+      teammateNoData: 'No teammate data with more than 20 shared matches.',
     },
     trend: {
       title: (days) => `${days}-Day Win Rate Trend`,
@@ -685,7 +703,6 @@ const copy = {
       emptyValue: '-',
     },
     errors: {
-      openDotaNumeric: 'OpenDota ID must be digits only.',
       steamNumeric: 'Steam32 must be digits only.',
       steamInvalid: 'Invalid Steam32 format.',
       accountLimit: (max) => `You can sign in up to ${max} accounts. Remove one first.`,

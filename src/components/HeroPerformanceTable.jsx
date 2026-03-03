@@ -58,6 +58,7 @@ const fallbackRecentCopy = {
   timeTags: {
     today: '今天',
     yesterday: '昨天',
+    within3Days: '3天内',
     within7Days: '7天内',
     within30Days: '30天内',
   },
@@ -65,6 +66,29 @@ const fallbackRecentCopy = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const ATTRIBUTE_TONE_MAP = {
+  str: 'strength',
+  strength: 'strength',
+  力量: 'strength',
+  agi: 'agility',
+  agility: 'agility',
+  敏捷: 'agility',
+  int: 'intelligence',
+  intelligence: 'intelligence',
+  智力: 'intelligence',
+  all: 'universal',
+  universal: 'universal',
+  全才: 'universal',
+};
+
+const resolveAttributeTone = (attribute) => {
+  if (typeof attribute !== 'string') {
+    return 'unknown';
+  }
+
+  const normalized = attribute.trim().toLowerCase();
+  return ATTRIBUTE_TONE_MAP[normalized] ?? 'unknown';
+};
 
 const formatDateTime = (startTime, locale, fallback) => {
   if (!startTime) {
@@ -118,6 +142,9 @@ const resolveMatchTimeTag = (startTime, boundaries, labels) => {
   }
   if (matchDayStartMs === boundaries.yesterdayStartMs) {
     return { key: 'yesterday', label: labels.yesterday };
+  }
+  if (diffDays <= 3) {
+    return { key: 'within3Days', label: labels.within3Days };
   }
   if (diffDays <= 7) {
     return { key: 'within7Days', label: labels.within7Days };
@@ -257,6 +284,8 @@ function HeroPerformanceTable({
                 const avgGpm = Number.isFinite(hero.avgGpm) ? hero.avgGpm : '-';
                 const avgXpm = Number.isFinite(hero.avgXpm) ? hero.avgXpm : '-';
                 const heroMatches = heroMatchesMap.get(rowId) ?? [];
+                const attributeTone = resolveAttributeTone(hero.attribute);
+                const attributeLabel = hero.attribute || '-';
 
                 return [
                   <tr
@@ -277,7 +306,9 @@ function HeroPerformanceTable({
                         <span>{hero.hero}</span>
                       </div>
                     </td>
-                    <td>{hero.attribute}</td>
+                    <td>
+                      <span className={`attribute-tag is-${attributeTone}`}>{attributeLabel}</span>
+                    </td>
                     <td>{hero.matches}</td>
                     <td>{winRate}</td>
                     <td>{hero.avgKda}</td>
