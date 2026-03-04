@@ -890,6 +890,10 @@ input:disabled {
   grid-template-columns: 1.6fr 1fr;
 }
 
+.trend-two-cols {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .panel {
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -940,12 +944,43 @@ input:disabled {
   display: block;
 }
 
+.trend-series-legend {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.trend-series-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trend-series-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.trend-series-dot.is-secondary {
+  background: var(--blue);
+}
+
 .trend-line {
   fill: none;
   stroke: var(--accent);
   stroke-width: 2.5;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.trend-line--secondary {
+  stroke: var(--blue);
+  stroke-width: 2;
 }
 
 .trend-grid-line {
@@ -965,6 +1000,12 @@ input:disabled {
   dominant-baseline: middle;
 }
 
+.trend-axis-text-bottom {
+  fill: var(--muted);
+  font-size: 8px;
+  text-anchor: middle;
+}
+
 .trend-area {
   fill: url(#trendGradient);
 }
@@ -975,6 +1016,73 @@ input:disabled {
   justify-content: space-between;
   color: var(--muted);
   font-size: 0.74rem;
+}
+
+.hourly-legend {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.hourly-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hourly-legend__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.hourly-legend__dot.is-count {
+  background: color-mix(in srgb, var(--blue) 82%, #ffffff 18%);
+}
+
+.hourly-legend__dot.is-ratio {
+  background: var(--accent);
+}
+
+.hourly-chart {
+  width: 100%;
+  height: 260px;
+  display: block;
+}
+
+.hourly-bar {
+  fill: color-mix(in srgb, var(--blue) 82%, #ffffff 18%);
+  opacity: 0.9;
+}
+
+.hourly-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.hourly-point {
+  fill: #ffffff;
+  stroke: var(--accent);
+  stroke-width: 1.4;
+}
+
+.hourly-axis-text-right {
+  fill: var(--muted);
+  font-size: 10px;
+  text-anchor: start;
+  dominant-baseline: middle;
+}
+
+.hourly-axis-text-bottom {
+  fill: var(--muted);
+  font-size: 8px;
+  text-anchor: middle;
 }
 
 .rank-list {

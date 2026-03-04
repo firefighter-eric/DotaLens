@@ -370,6 +370,29 @@ export const summarizeRecentMatches = (matches) => {
   };
 };
 
+export const buildHourlyMatchDistribution = (matches) => {
+  const safeMatches = Array.isArray(matches) ? matches : [];
+  const hourlyCounts = Array.from({ length: 24 }, (_, hour) => ({ hour, matches: 0 }));
+
+  safeMatches.forEach((match) => {
+    const startTime = Number(match?.startTime);
+    if (!Number.isFinite(startTime) || startTime <= 0) {
+      return;
+    }
+
+    const hour = new Date(startTime * 1000).getHours();
+    if (hour >= 0 && hour <= 23) {
+      hourlyCounts[hour].matches += 1;
+    }
+  });
+
+  const totalMatches = hourlyCounts.reduce((sum, entry) => sum + entry.matches, 0);
+  return hourlyCounts.map((entry) => ({
+    ...entry,
+    ratio: totalMatches > 0 ? Number(((entry.matches / totalMatches) * 100).toFixed(1)) : 0,
+  }));
+};
+
 export const buildGameModeDistribution = (matches, unknownModeLabel = 'Unknown') => {
   const safeMatches = Array.isArray(matches) ? matches : [];
   if (!safeMatches.length) {

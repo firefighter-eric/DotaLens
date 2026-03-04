@@ -974,6 +974,22 @@ const buildDailyGpmTrend = (matches, days) =>
     initialValue: 0,
   });
 
+const buildDailyXpmTrend = (matches, days) =>
+  buildDailyTrendSeries(matches, days, {
+    createState: () => ({ xpmTotal: 0, xpmMatches: 0 }),
+    applyMatch: (state, match) => {
+      const xpm = toFiniteOrNull(match.xp_per_min);
+      if (xpm === null) {
+        return;
+      }
+      state.xpmTotal += xpm;
+      state.xpmMatches += 1;
+    },
+    resolveValue: (state) => (state.xpmMatches > 0 ? Math.round(state.xpmTotal / state.xpmMatches) : null),
+    roundValue: (value) => Math.round(value),
+    initialValue: 0,
+  });
+
 const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
   const aggregate = new Map();
 
@@ -1161,6 +1177,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
       dailyWinRate: [],
       dailyKdaTrend: [],
       dailyGpmTrend: [],
+      dailyXpmTrend: [],
       rankDistribution: [],
       recentMatches,
       windowMatches: [],
@@ -1177,6 +1194,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
   const dailyWinRate = buildDailyWinRate(validMatches, days);
   const dailyKdaTrend = buildDailyKdaTrend(validMatches, days);
   const dailyGpmTrend = buildDailyGpmTrend(validMatches, days);
+  const dailyXpmTrend = buildDailyXpmTrend(validMatches, days);
   const rankDistribution = buildRankDistribution(validMatches, locale);
 
   return {
@@ -1186,6 +1204,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     dailyWinRate,
     dailyKdaTrend,
     dailyGpmTrend,
+    dailyXpmTrend,
     rankDistribution,
     recentMatches,
     windowMatches,

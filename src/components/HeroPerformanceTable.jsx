@@ -23,6 +23,7 @@ const fallbackCopy = {
     attributeAll: '全部属性',
     sortOptions: {
       impact: '影响力',
+      attribute: '属性',
       matches: '场次',
       winRate: '胜率',
       avgKda: '平均 KDA',
@@ -175,10 +176,10 @@ function HeroPerformanceTable({
   copy = fallbackCopy,
 }) {
   const activeControls = controls ?? {
-    sortKey: 'impact',
+    sortKey: 'winRate',
     sortDir: 'desc',
     attributeFilter: 'all',
-    minMatches: 0,
+    minMatches: 2,
   };
   const locale = lang === 'en' ? 'en-US' : 'zh-CN';
   const effectiveRecentCopy = {
@@ -202,6 +203,20 @@ function HeroPerformanceTable({
     todayStartMs: getDayStartMs(now),
     yesterdayStartMs: getDayStartMs(now) - DAY_MS,
   };
+  const toggleSort = (nextKey) => {
+    if (activeControls.sortKey === nextKey) {
+      onSortDirChange?.(activeControls.sortDir === 'desc' ? 'asc' : 'desc');
+      return;
+    }
+    onSortKeyChange?.(nextKey);
+    onSortDirChange?.(nextKey === 'hero' || nextKey === 'attribute' ? 'asc' : 'desc');
+  };
+  const renderSortIndicator = (key) => {
+    if (activeControls.sortKey !== key) {
+      return null;
+    }
+    return activeControls.sortDir === 'desc' ? ' ↓' : ' ↑';
+  };
 
   return (
     <section className="panel table-panel">
@@ -213,26 +228,6 @@ function HeroPerformanceTable({
         </div>
       </div>
       <div className="table-controls" role="group" aria-label={copy.title}>
-        <label>
-          <span>{copy.controls.sortLabel}</span>
-          <select value={activeControls.sortKey} onChange={(event) => onSortKeyChange?.(event.target.value)}>
-            {Object.entries(copy.controls.sortOptions).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>{copy.controls.sortDirectionLabel}</span>
-          <select value={activeControls.sortDir} onChange={(event) => onSortDirChange?.(event.target.value)}>
-            {Object.entries(copy.controls.directionOptions).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
         <label>
           <span>{copy.controls.attributeLabel}</span>
           <select
@@ -265,14 +260,54 @@ function HeroPerformanceTable({
         <table>
           <thead>
             <tr>
-              <th>{copy.headers.hero}</th>
-              <th>{copy.headers.attribute}</th>
-              <th>{copy.headers.matches}</th>
-              <th>{copy.headers.winRate}</th>
-              <th>{copy.headers.avgKda}</th>
-              <th>{copy.headers.avgGpm}</th>
-              <th>{copy.headers.avgXpm}</th>
-              <th>{copy.headers.impact}</th>
+              <th>
+                <button type="button" className="sort-th-btn" onClick={() => toggleSort('hero')}>
+                  {copy.headers.hero}
+                  {renderSortIndicator('hero')}
+                </button>
+              </th>
+              <th>
+                <button type="button" className="sort-th-btn" onClick={() => toggleSort('attribute')}>
+                  {copy.headers.attribute}
+                  {renderSortIndicator('attribute')}
+                </button>
+              </th>
+              <th>
+                <button type="button" className="sort-th-btn" onClick={() => toggleSort('matches')}>
+                  {copy.headers.matches}
+                  {renderSortIndicator('matches')}
+                </button>
+              </th>
+              <th>
+                <button type="button" className="sort-th-btn" onClick={() => toggleSort('winRate')}>
+                  {copy.headers.winRate}
+                  {renderSortIndicator('winRate')}
+                </button>
+              </th>
+              <th>
+                <button type="button" className="sort-th-btn" onClick={() => toggleSort('avgKda')}>
+                  {copy.headers.avgKda}
+                  {renderSortIndicator('avgKda')}
+                </button>
+              </th>
+              <th>
+                <button type="button" className="sort-th-btn" onClick={() => toggleSort('avgGpm')}>
+                  {copy.headers.avgGpm}
+                  {renderSortIndicator('avgGpm')}
+                </button>
+              </th>
+              <th>
+                <button type="button" className="sort-th-btn" onClick={() => toggleSort('avgXpm')}>
+                  {copy.headers.avgXpm}
+                  {renderSortIndicator('avgXpm')}
+                </button>
+              </th>
+              <th>
+                <button type="button" className="sort-th-btn" onClick={() => toggleSort('impact')}>
+                  {copy.headers.impact}
+                  {renderSortIndicator('impact')}
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody>
