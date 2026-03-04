@@ -106,10 +106,14 @@ const resolveTrendRange = (data, percentage) => {
   };
 };
 
-function WinRateTrend({ data, days = 14, copy = fallbackCopy, percentage = false }) {
+function WinRateTrend({ data, secondaryData = [], days = 14, copy = fallbackCopy, percentage = false }) {
   const gradientId = useId().replace(/:/g, '');
   const latestValueFormatter = copy.latestValue ?? copy.latestWinRate ?? fallbackCopy.latestValue;
+  const latestDualValueFormatter = copy.latestDualValue;
   const axisValueFormatter = copy.axisValue ?? ((value) => (percentage ? `${value}%` : String(value)));
+  const secondarySeriesLabel = copy.secondarySeriesLabel;
+  const primarySeriesLabel = copy.primarySeriesLabel;
+  const hasSecondary = secondaryData.length === data.length && secondaryData.length > 0;
 
   if (!data.length) {
     return (
@@ -127,11 +131,14 @@ function WinRateTrend({ data, days = 14, copy = fallbackCopy, percentage = false
   const height = 220;
   const paddingTop = 10;
   const paddingRight = 12;
-  const paddingBottom = 10;
+  const paddingBottom = 24;
   const paddingLeft = 48;
   const plotWidth = width - paddingLeft - paddingRight;
   const plotHeight = height - paddingTop - paddingBottom;
-  const { min, max } = resolveTrendRange(data, percentage);
+  const valueSeries = hasSecondary
+    ? [...data, ...secondaryData.map((item, index) => ({ ...item, day: data[index]?.day ?? item.day }))]
+    : data;
+  const { min, max } = resolveTrendRange(valueSeries, percentage);
 
   const scale = Math.max(1, max - min);
   const yTicks = Array.from({ length: 5 }, (_, index) => {
@@ -149,18 +156,42 @@ function WinRateTrend({ data, days = 14, copy = fallbackCopy, percentage = false
       return `${x},${y}`;
     })
     .join(' ');
+  const secondaryPoints = hasSecondary
+    ? secondaryData
+        .map((point, index) => {
+          const x = paddingLeft + (index / Math.max(1, secondaryData.length - 1)) * plotWidth;
+          const y = paddingTop + (1 - (point.value - min) / scale) * plotHeight;
+          return `${x},${y}`;
+        })
+        .join(' ')
+    : '';
 
   const last = data[data.length - 1];
+  const secondaryLast = hasSecondary ? secondaryData[secondaryData.length - 1] : null;
+  const latestTag =
+    hasSecondary && typeof latestDualValueFormatter === 'function' && secondaryLast
+      ? latestDualValueFormatter(last.value, secondaryLast.value)
+      : latestValueFormatter(last.value);
   const xAxisLabels = pickXAxisLabels(data);
-  const xLabelPaddingLeft = `${(paddingLeft / width) * 100}%`;
-  const xLabelPaddingRight = `${(paddingRight / width) * 100}%`;
 
   return (
     <section className="panel trend-panel">
       <div className="panel-header">
         <h2>{copy.title(days)}</h2>
-        <span className="panel-tag">{latestValueFormatter(last.value)}</span>
+        <span className="panel-tag">{latestTag}</span>
       </div>
+      {hasSecondary ? (
+        <div className="trend-series-legend">
+          <span>
+            <i className="trend-series-dot" />
+            {primarySeriesLabel ?? 'Series A'}
+          </span>
+          <span>
+            <i className="trend-series-dot is-secondary" />
+            {secondarySeriesLabel ?? 'Series B'}
+          </span>
+        </div>
+      ) : null}
       <svg viewBox={`0 0 ${width} ${height}`} className="trend-chart" role="img" aria-label={copy.ariaLabel(days)}>
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -183,18 +214,29 @@ function WinRateTrend({ data, days = 14, copy = fallbackCopy, percentage = false
           y2={height - paddingBottom}
           className="trend-axis-line"
         />
+        <line
+          x1={paddingLeft}
+          y1={height - paddingBottom}
+          x2={width - paddingRight}
+          y2={height - paddingBottom}
+          className="trend-axis-line"
+        />
         <polyline points={points} className="trend-line" />
+        {hasSecondary ? <polyline points={secondaryPoints} className="trend-line trend-line--secondary" /> : null}
         <polygon
           points={`${paddingLeft},${height - paddingBottom} ${points} ${width - paddingRight},${height - paddingBottom}`}
           className="trend-area"
           style={{ fill: `url(#${gradientId})` }}
         />
+        {xAxisLabels.map((point) => {
+          const x = paddingLeft + (point.index / Math.max(1, data.length - 1)) * plotWidth;
+          return (
+            <text key={`${point.day}-${point.index}`} x={x} y={height - 6} className="trend-axis-text-bottom">
+              {point.day}
+            </text>
+          );
+        })}
       </svg>
-      <div className="trend-labels" style={{ paddingInline: `${xLabelPaddingLeft} ${xLabelPaddingRight}` }}>
-        {xAxisLabels.map((point) => (
-          <span key={`${point.day}-${point.index}`}>{point.day}</span>
-        ))}
-      </div>
     </section>
   );
 }

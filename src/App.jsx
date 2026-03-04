@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import StatCard from './components/StatCard.jsx';
 import WinRateTrend from './components/WinRateTrend.jsx';
+import HourlyMatchTrend from './components/HourlyMatchTrend.jsx';
 import HeroPerformanceTable from './components/HeroPerformanceTable.jsx';
 import RankDistribution from './components/RankDistribution.jsx';
 import GameModeDistributionPie from './components/GameModeDistributionPie.jsx';
@@ -8,10 +9,17 @@ import RecentMatchesPanel from './components/RecentMatchesPanel.jsx';
 import RecentMatchDetailDrawer from './components/RecentMatchDetailDrawer.jsx';
 import CatalogListPanel from './components/CatalogListPanel.jsx';
 import TeammatesPanel from './components/TeammatesPanel.jsx';
-import { dailyGpmTrend, dailyKdaTrend, dailyWinRate, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
+import { dailyGpmTrend, dailyKdaTrend, dailyWinRate, dailyXpmTrend, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
 import { heroCatalog } from './data/heroCatalog.js';
 import { itemCatalog } from './data/itemCatalog.js';
-import { buildGameModeDistribution, summarizeDashboard, summarizeOverviewExtremes, summarizeRecentMatches, summarizeSideWinRates } from './utils/metrics.js';
+import {
+  buildGameModeDistribution,
+  buildHourlyMatchDistribution,
+  summarizeDashboard,
+  summarizeOverviewExtremes,
+  summarizeRecentMatches,
+  summarizeSideWinRates,
+} from './utils/metrics.js';
 import { fetchPlayerWindowAnalytics, fetchRecentMatchDetail } from './services/opendota.js';
 import { createOpenDotaClient } from './services/opendotaClient.js';
 import { getCopy } from './i18n/copy.js';
@@ -23,7 +31,7 @@ const MAX_SAVED_ACCOUNTS = 5;
 const ACCOUNT_STORAGE_KEY = 'dotalens.accounts.v1';
 const RECENT_MATCHES_PAGE_SIZE = 30;
 const SUPPORTED_TIME_WINDOWS = [30, 365];
-const DEFAULT_TIME_WINDOW = 30;
+const DEFAULT_TIME_WINDOW = 365;
 const TAB_IDS = {
   overview: 'overview',
   trend: 'trend',
@@ -226,6 +234,7 @@ const createMockDashboard = (copy, lang = 'zh') => {
     dailyWinRate,
     dailyKdaTrend,
     dailyGpmTrend,
+    dailyXpmTrend,
     rankDistribution,
     recentMatches: localizedRecentMatches,
     windowMatches: localizedRecentMatches,
@@ -442,6 +451,9 @@ const compareHeroes = (a, b, sortKey, sortDir, lang) => {
     if (sortKey === 'hero') {
       return hero.hero;
     }
+    if (sortKey === 'attribute') {
+      return hero.attribute ?? '';
+    }
     if (sortKey === 'matches') {
       return hero.matches;
     }
@@ -616,10 +628,10 @@ function App() {
   const [days, setDays] = useState(sessionSeed.days);
   const [activeTab, setActiveTab] = useState(TAB_IDS.recentMatches);
   const [recentMatchesPage, setRecentMatchesPage] = useState(1);
-  const [sortKey, setSortKey] = useState('impact');
+  const [sortKey, setSortKey] = useState('winRate');
   const [sortDir, setSortDir] = useState('desc');
   const [attributeFilter, setAttributeFilter] = useState('all');
-  const [minMatches, setMinMatches] = useState(0);
+  const [minMatches, setMinMatches] = useState(2);
   const [selectedHeroRowId, setSelectedHeroRowId] = useState(null);
   const [heroRowManuallyCollapsed, setHeroRowManuallyCollapsed] = useState(false);
   const [dashboard, setDashboard] = useState(() => createMockDashboard(getCopy('zh'), 'zh'));
@@ -1287,9 +1299,16 @@ function App() {
     ...copy.trend,
     title: copy.trend.gpmTitle,
     latestValue: copy.trend.latestGpm,
+    latestDualValue: copy.trend.latestGpmXpm,
     ariaLabel: copy.trend.gpmAriaLabel,
     axisValue: copy.trend.gpmAxisValue,
+    primarySeriesLabel: copy.trend.gpmSeriesLabel,
+    secondarySeriesLabel: copy.trend.xpmSeriesLabel,
   };
+  const hourlyMatchDistribution = useMemo(
+    () => buildHourlyMatchDistribution(dashboard.windowMatches ?? []),
+    [dashboard.windowMatches]
+  );
   const teammateSummary = dashboard.teammateSummary ?? {};
   const mostPlayedTeammate = teammateSummary.mostPlayed ?? null;
   const bestWinRateTeammate = teammateSummary.bestWinRateOver20 ?? null;
@@ -1716,10 +1735,16 @@ function App() {
         {activeTab === TAB_IDS.trend ? (
           <section id={`panel-${TAB_IDS.trend}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.trend}`} className="tab-content">
             <WinRateTrend data={dashboard.dailyWinRate} days={days} copy={copy.trend} percentage />
-            <section className="two-cols">
+            <section className="two-cols trend-two-cols">
               <WinRateTrend data={dashboard.dailyKdaTrend ?? []} days={days} copy={kdaTrendCopy} />
-              <WinRateTrend data={dashboard.dailyGpmTrend ?? []} days={days} copy={gpmTrendCopy} />
+              <WinRateTrend
+                data={dashboard.dailyGpmTrend ?? []}
+                secondaryData={dashboard.dailyXpmTrend ?? []}
+                days={days}
+                copy={gpmTrendCopy}
+              />
             </section>
+            <HourlyMatchTrend data={hourlyMatchDistribution} days={days} copy={copy.trend} />
           </section>
         ) : null}
 

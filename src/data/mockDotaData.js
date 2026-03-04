@@ -142,6 +142,23 @@ export const dailyGpmTrend = [
   { day: '02/20', value: 574 },
 ];
 
+export const dailyXpmTrend = [
+  { day: '02/07', value: 532 },
+  { day: '02/08', value: 547 },
+  { day: '02/09', value: 561 },
+  { day: '02/10', value: 556 },
+  { day: '02/11', value: 572 },
+  { day: '02/12', value: 586 },
+  { day: '02/13', value: 579 },
+  { day: '02/14', value: 594 },
+  { day: '02/15', value: 608 },
+  { day: '02/16', value: 603 },
+  { day: '02/17', value: 617 },
+  { day: '02/18', value: 631 },
+  { day: '02/19', value: 624 },
+  { day: '02/20', value: 639 },
+];
+
 export const rankDistribution = [
   { tier: 'Archon', ratio: 18 },
   { tier: 'Legend', ratio: 31 },
