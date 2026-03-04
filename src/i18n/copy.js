@@ -235,7 +235,7 @@ const copy = {
     },
     teammates: {
       title: '队友协同',
-      tag: (days) => `最近 ${days} 天窗口`,
+      tag: () => 'OpenDota 全历史样本',
       openHint: '按历史同队场次排序',
       noDataText: '暂无可用队友数据。',
       controls: {
@@ -247,7 +247,7 @@ const copy = {
           avgGpm: 'GPM',
           avgXpm: 'XPM',
           againstWinRate: '对位胜率',
-          lastPlayed: '最近一起',
+          lastPlayed: '最近遇到',
           teammate: '队友',
         },
         directionOptions: {
@@ -268,7 +268,7 @@ const copy = {
         record: '战绩',
         gpmXpm: 'GPM / XPM',
         againstWinRate: '对位胜率',
-        lastPlayed: '最近一起时间',
+        lastPlayed: '最近遇到时间',
       },
       againstNoData: '-',
       emptyValue: '-',
@@ -635,7 +635,7 @@ const copy = {
     },
     teammates: {
       title: 'Teammate Synergy',
-      tag: (days) => `Last ${days} Days Window`,
+      tag: () => 'OpenDota Lifetime Sample',
       openHint: 'Sorted by lifetime shared matches',
       noDataText: 'No teammate data available.',
       controls: {
@@ -647,7 +647,7 @@ const copy = {
           avgGpm: 'GPM',
           avgXpm: 'XPM',
           againstWinRate: 'Vs Win Rate',
-          lastPlayed: 'Last Played Together',
+          lastPlayed: 'Last Encounter',
           teammate: 'Teammate',
         },
         directionOptions: {
@@ -668,7 +668,7 @@ const copy = {
         record: 'Shared Record',
         gpmXpm: 'Shared GPM / XPM',
         againstWinRate: 'Vs Win Rate',
-        lastPlayed: 'Last Played Together',
+        lastPlayed: 'Last Encounter Time',
       },
       againstNoData: '-',
       emptyValue: '-',
