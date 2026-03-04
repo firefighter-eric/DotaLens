@@ -1187,6 +1187,20 @@ th {
   background: #f8fafc;
 }
 
+.sort-th-btn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.sort-th-btn:hover {
+  color: #334155;
+}
+
 td {
   color: #1f2937;
   font-size: 0.93rem;
@@ -1202,6 +1216,14 @@ td {
   width: 42px;
   height: 24px;
   border-radius: 4px;
+  object-fit: cover;
+  border: 1px solid #dbe2ea;
+}
+
+.teammate-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
   object-fit: cover;
   border: 1px solid #dbe2ea;
 }

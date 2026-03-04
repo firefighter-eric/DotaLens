@@ -7,6 +7,7 @@ const ITEM_SLOTS = [0, 1, 2, 3, 4, 5];
 const SKILL_BUILD_LIMIT = 18;
 const MATCH_DETAIL_PLAYER_PROFILE_LIMIT = 10;
 const TEAMMATE_MIN_MATCHES_FOR_WIN_RATE = 20;
+const TEAMMATE_DISPLAY_LIMIT = 120;
 
 const localeConfig = {
   zh: {
@@ -489,8 +490,28 @@ const resolvePeerDisplayName = (peer, locale) => {
   return locale.unknownPlayer;
 };
 
-const buildTeammateSummary = (peers, locale) => {
-  const normalized = toArray(peers)
+const resolvePeerAverageStat = (peer, games, avgKeys, sumKeys) => {
+  for (const key of avgKeys) {
+    const value = toFiniteOrNull(peer?.[key]);
+    if (value !== null) {
+      return value;
+    }
+  }
+
+  if (games > 0) {
+    for (const key of sumKeys) {
+      const sumValue = toFiniteOrNull(peer?.[key]);
+      if (sumValue !== null) {
+        return sumValue / games;
+      }
+    }
+  }
+
+  return null;
+};
+
+const buildTeammates = (peers, locale, limit = TEAMMATE_DISPLAY_LIMIT) =>
+  toArray(peers)
     .map((peer) => {
       const matches = toPositiveCount(peer?.with_games);
       if (matches <= 0) {
@@ -498,17 +519,37 @@ const buildTeammateSummary = (peers, locale) => {
       }
 
       const wins = clamp(toPositiveCount(peer?.with_win), 0, matches);
-      const winRate = Number(((wins / matches) * 100).toFixed(1));
+      const losses = Math.max(0, matches - wins);
+      const againstMatches = toPositiveCount(peer?.against_games);
+      const againstWins = clamp(toPositiveCount(peer?.against_win), 0, againstMatches);
+      const againstWinRate = againstMatches > 0 ? Number(((againstWins / againstMatches) * 100).toFixed(1)) : null;
+      const avgKda = resolvePeerAverageStat(peer, matches, ['with_kda', 'kda'], ['with_kda_sum', 'kda_sum']);
+      const avgGpm = resolvePeerAverageStat(peer, matches, ['with_gpm', 'gpm'], ['with_gpm_sum', 'gpm_sum']);
+      const avgXpm = resolvePeerAverageStat(peer, matches, ['with_xpm', 'xpm'], ['with_xpm_sum', 'xpm_sum']);
+
       return {
         accountId: normalizeAccountId(peer?.account_id),
         playerName: resolvePeerDisplayName(peer, locale),
         playerAvatar: resolvePlayerAvatar(peer),
         matches,
         wins,
-        winRate,
+        losses,
+        winRate: Number(((wins / matches) * 100).toFixed(1)),
+        avgKda: avgKda === null ? null : Number(avgKda.toFixed(2)),
+        avgGpm: avgGpm === null ? null : Number(avgGpm.toFixed(1)),
+        avgXpm: avgXpm === null ? null : Number(avgXpm.toFixed(1)),
+        againstMatches,
+        againstWins,
+        againstWinRate,
+        lastPlayed: toFiniteOrNull(peer?.last_played),
       };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((a, b) => b.matches - a.matches || b.wins - a.wins || (a.accountId ?? Number.MAX_SAFE_INTEGER) - (b.accountId ?? Number.MAX_SAFE_INTEGER))
+    .slice(0, limit);
+
+const buildTeammateSummary = (teammates) => {
+  const normalized = toArray(teammates);
 
   const mostPlayed =
     normalized
@@ -1004,7 +1045,8 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     client.getPlayerCountsByDays(accountId, days, signal).catch(() => null),
     client.getPlayerPeers(accountId, signal).catch(() => []),
   ]);
-  const teammateSummary = buildTeammateSummary(peers, locale);
+  const teammates = buildTeammates(peers, locale);
+  const teammateSummary = buildTeammateSummary(teammates);
   const achievementTotals = mergeAchievementTotals(
     buildAchievementTotalsFromCounts(counts),
     buildAchievementTotalsFromMatches(matches)
@@ -1026,6 +1068,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
       windowMatches: [],
       metrics: summarizeDashboard([], []),
       achievementTotals,
+      teammates,
       teammateSummary,
       totalMatches: 0,
       latestMatchStartTime: recentMatches[0]?.startTime ?? null,
@@ -1050,6 +1093,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     windowMatches,
     metrics: summarizeDashboard(heroPerformance, windowMatches),
     achievementTotals,
+    teammates,
     teammateSummary,
     totalMatches: validMatches.length,
     latestMatchStartTime: validMatches[0]?.start_time ?? null,

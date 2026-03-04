@@ -7,6 +7,7 @@ import GameModeDistributionPie from './components/GameModeDistributionPie.jsx';
 import RecentMatchesPanel from './components/RecentMatchesPanel.jsx';
 import RecentMatchDetailDrawer from './components/RecentMatchDetailDrawer.jsx';
 import CatalogListPanel from './components/CatalogListPanel.jsx';
+import TeammatesPanel from './components/TeammatesPanel.jsx';
 import { dailyGpmTrend, dailyKdaTrend, dailyWinRate, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
 import { heroCatalog } from './data/heroCatalog.js';
 import { itemCatalog } from './data/itemCatalog.js';
@@ -27,6 +28,7 @@ const TAB_IDS = {
   overview: 'overview',
   trend: 'trend',
   heroes: 'heroes',
+  teammates: 'teammates',
   recentMatches: 'recentMatches',
   allHeroes: 'allHeroes',
   allItems: 'allItems',
@@ -149,6 +151,72 @@ const createMockDashboard = (copy, lang = 'zh') => {
     },
     { rampage: 0, godlike: 0, rampageDataAvailable: true, godlikeDataAvailable: true }
   );
+  const teammates = [
+    {
+      accountId: 1,
+      playerName: lang === 'en' ? 'Teammate A' : '队友 A',
+      playerAvatar: '',
+      matches: 28,
+      wins: 16,
+      losses: 12,
+      winRate: 57.1,
+      avgKda: 3.46,
+      avgGpm: 512,
+      avgXpm: 602,
+      againstMatches: 11,
+      againstWins: 6,
+      againstWinRate: 54.5,
+      lastPlayed: 1735603200,
+    },
+    {
+      accountId: 2,
+      playerName: lang === 'en' ? 'Teammate B' : '队友 B',
+      playerAvatar: '',
+      matches: 26,
+      wins: 19,
+      losses: 7,
+      winRate: 73.1,
+      avgKda: 4.12,
+      avgGpm: 558,
+      avgXpm: 645,
+      againstMatches: 10,
+      againstWins: 3,
+      againstWinRate: 30,
+      lastPlayed: 1737062400,
+    },
+    {
+      accountId: 3,
+      playerName: lang === 'en' ? 'Teammate C' : '队友 C',
+      playerAvatar: '',
+      matches: 22,
+      wins: 7,
+      losses: 15,
+      winRate: 31.8,
+      avgKda: 2.21,
+      avgGpm: 441,
+      avgXpm: 521,
+      againstMatches: 13,
+      againstWins: 9,
+      againstWinRate: 69.2,
+      lastPlayed: 1732233600,
+    },
+    {
+      accountId: 4,
+      playerName: lang === 'en' ? 'Teammate D' : '队友 D',
+      playerAvatar: '',
+      matches: 18,
+      wins: 10,
+      losses: 8,
+      winRate: 55.6,
+      avgKda: 3.01,
+      avgGpm: 486,
+      avgXpm: 575,
+      againstMatches: 6,
+      againstWins: 2,
+      againstWinRate: 33.3,
+      lastPlayed: 1734480000,
+    },
+  ];
   return {
     source: 'mock',
     playerName: copy.misc.samplePlayerName,
@@ -163,31 +231,11 @@ const createMockDashboard = (copy, lang = 'zh') => {
     windowMatches: localizedRecentMatches,
     metrics,
     achievementTotals,
+    teammates,
     teammateSummary: {
-      mostPlayed: {
-        accountId: 1,
-        playerName: lang === 'en' ? 'Teammate A' : '队友 A',
-        playerAvatar: '',
-        matches: 28,
-        wins: 16,
-        winRate: 57.1,
-      },
-      worstWinRateOver20: {
-        accountId: 3,
-        playerName: lang === 'en' ? 'Teammate C' : '队友 C',
-        playerAvatar: '',
-        matches: 22,
-        wins: 7,
-        winRate: 31.8,
-      },
-      bestWinRateOver20: {
-        accountId: 2,
-        playerName: lang === 'en' ? 'Teammate B' : '队友 B',
-        playerAvatar: '',
-        matches: 26,
-        wins: 19,
-        winRate: 73.1,
-      },
+      mostPlayed: teammates[0],
+      worstWinRateOver20: teammates[2],
+      bestWinRateOver20: teammates[1],
     },
   };
 };
@@ -1171,6 +1219,7 @@ function App() {
   const tabItems = [
     { id: TAB_IDS.recentMatches, label: copy.tabs.recentMatches },
     { id: TAB_IDS.heroes, label: copy.tabs.heroes },
+    { id: TAB_IDS.teammates, label: copy.tabs.teammates },
     { id: TAB_IDS.trend, label: copy.tabs.trend },
     { id: TAB_IDS.overview, label: copy.tabs.overview },
     { id: TAB_IDS.allHeroes, label: copy.tabs.allHeroes, rightGroup: true },
@@ -1694,6 +1743,12 @@ function App() {
               lang={lang}
               copy={copy.table}
             />
+          </section>
+        ) : null}
+
+        {activeTab === TAB_IDS.teammates ? (
+          <section id={`panel-${TAB_IDS.teammates}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.teammates}`} className="tab-content">
+            <TeammatesPanel teammates={dashboard.teammates ?? []} days={days} lang={lang} copy={copy.teammates} />
           </section>
         ) : null}
 
