@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 
 const fallbackCopy = {
   title: '队友协同',
-  tag: (days) => `最近 ${days} 天`,
+  tag: () => '全历史样本',
   openHint: '按同队场次降序',
   noDataText: '暂无可用队友数据。',
   summary: {
@@ -18,7 +18,7 @@ const fallbackCopy = {
     record: '战绩',
     gpmXpm: 'GPM / XPM',
     againstWinRate: '对位胜率',
-    lastPlayed: '最近一起',
+    lastPlayed: '最近遇到时间',
   },
   againstNoData: '-',
   emptyValue: '-',

@@ -8,6 +8,7 @@ const SKILL_BUILD_LIMIT = 18;
 const MATCH_DETAIL_PLAYER_PROFILE_LIMIT = 10;
 const TEAMMATE_MIN_MATCHES_FOR_WIN_RATE = 20;
 const TEAMMATE_DISPLAY_LIMIT = 120;
+const TEAMMATE_LAST_PLAYED_SCAN_LIMIT = 15;
 
 const localeConfig = {
   zh: {
@@ -548,6 +549,102 @@ const buildTeammates = (peers, locale, limit = TEAMMATE_DISPLAY_LIMIT) =>
     .sort((a, b) => b.matches - a.matches || b.wins - a.wins || (a.accountId ?? Number.MAX_SAFE_INTEGER) - (b.accountId ?? Number.MAX_SAFE_INTEGER))
     .slice(0, limit);
 
+const enrichTeammatesLastPlayedFromRecentMatches = async (teammates, accountId, latestMatches, client, signal) => {
+  const normalizedAccountId = normalizeAccountId(accountId);
+  if (normalizedAccountId == null) {
+    return teammates;
+  }
+
+  const targetTeammateIds = new Set(
+    teammates.map((entry) => normalizeAccountId(entry?.accountId)).filter((id) => id != null)
+  );
+  if (targetTeammateIds.size === 0) {
+    return teammates;
+  }
+
+  const recentMatchesToScan = toArray(latestMatches)
+    .filter((entry) => normalizeAccountId(entry?.match_id) != null)
+    .sort((a, b) => (toFiniteOrNull(b?.start_time) ?? 0) - (toFiniteOrNull(a?.start_time) ?? 0))
+    .slice(0, TEAMMATE_LAST_PLAYED_SCAN_LIMIT);
+  if (recentMatchesToScan.length === 0) {
+    return teammates;
+  }
+
+  const lastPlayedByTeammateId = new Map();
+
+  await Promise.all(
+    recentMatchesToScan.map(async (entry) => {
+      try {
+        const detail = await client.getMatchById(entry.match_id, signal);
+        const players = toArray(detail?.players);
+        if (players.length === 0) {
+          return;
+        }
+
+        const self = players.find((player) => normalizeAccountId(player?.account_id) === normalizedAccountId);
+        if (!self || self.player_slot == null) {
+          return;
+        }
+
+        const matchStartTime = toFiniteOrNull(detail?.start_time) ?? toFiniteOrNull(entry?.start_time);
+        if (matchStartTime == null || matchStartTime <= 0) {
+          return;
+        }
+
+        const selfOnRadiant = Number(self.player_slot) < 128;
+        players.forEach((player) => {
+          const teammateId = normalizeAccountId(player?.account_id);
+          if (teammateId == null || teammateId === normalizedAccountId || !targetTeammateIds.has(teammateId)) {
+            return;
+          }
+          if (player.player_slot == null) {
+            return;
+          }
+          const sameTeam = (Number(player.player_slot) < 128) === selfOnRadiant;
+          if (!sameTeam) {
+            return;
+          }
+
+          const previous = lastPlayedByTeammateId.get(teammateId) ?? 0;
+          if (matchStartTime > previous) {
+            lastPlayedByTeammateId.set(teammateId, matchStartTime);
+          }
+        });
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          throw error;
+        }
+      }
+    })
+  );
+
+  if (lastPlayedByTeammateId.size === 0) {
+    return teammates;
+  }
+
+  return teammates.map((entry) => {
+    const teammateId = normalizeAccountId(entry?.accountId);
+    if (teammateId == null) {
+      return entry;
+    }
+
+    const calibrated = lastPlayedByTeammateId.get(teammateId);
+    if (calibrated == null) {
+      return entry;
+    }
+
+    const previous = toFiniteOrNull(entry?.lastPlayed) ?? 0;
+    if (calibrated <= previous) {
+      return entry;
+    }
+
+    return {
+      ...entry,
+      lastPlayed: calibrated,
+    };
+  });
+};
+
 const buildTeammateSummary = (teammates) => {
   const normalized = toArray(teammates);
 
@@ -1045,7 +1142,8 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     client.getPlayerCountsByDays(accountId, days, signal).catch(() => null),
     client.getPlayerPeers(accountId, signal).catch(() => []),
   ]);
-  const teammates = buildTeammates(peers, locale);
+  const teammatesRaw = buildTeammates(peers, locale);
+  const teammates = await enrichTeammatesLastPlayedFromRecentMatches(teammatesRaw, accountId, latestMatches, client, signal);
   const teammateSummary = buildTeammateSummary(teammates);
   const achievementTotals = mergeAchievementTotals(
     buildAchievementTotalsFromCounts(counts),
