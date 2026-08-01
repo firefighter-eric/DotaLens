@@ -1,0 +1,19 @@
+{
+  "name": "DotaLens - Dota 2 数据分析",
+  "short_name": "DotaLens",
+  "description": "Bilingual Dota 2 match and performance analytics powered by OpenDota.",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f1713",
+  "theme_color": "#0f1713",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

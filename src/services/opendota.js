@@ -1,14 +1,12 @@
 import { summarizeDashboard } from '../utils/metrics.js';
+import { toValidUnixDate } from '../utils/date.js';
 import { createOpenDotaClient } from './opendotaClient.js';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const RECENT_MATCH_FETCH_LIMIT = 30;
 const ITEM_SLOTS = [0, 1, 2, 3, 4, 5];
-const SKILL_BUILD_LIMIT = 18;
-const MATCH_DETAIL_PLAYER_PROFILE_LIMIT = 10;
+const SKILL_BUILD_LIMIT = 30;
 const TEAMMATE_MIN_MATCHES_FOR_WIN_RATE = 20;
 const TEAMMATE_DISPLAY_LIMIT = 120;
-const TEAMMATE_LAST_PLAYED_SCAN_LIMIT = 15;
 
 const localeConfig = {
   zh: {
@@ -162,11 +160,19 @@ const pad2 = (value) => String(value).padStart(2, '0');
 const getLocaleConfig = (locale) => localeConfig[locale] ?? localeConfig.zh;
 const toArray = (value) => (Array.isArray(value) ? value : []);
 const toFiniteOrNull = (value) => {
+  if (value == null || (typeof value === 'string' && value.trim() === '')) {
+    return null;
+  }
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 };
+const normalizeUnixSeconds = (value) => {
+  const seconds = toFiniteOrNull(value);
+  return seconds !== null && toValidUnixDate(seconds) ? seconds : null;
+};
 const toPositiveCount = (value) => {
-  const num = toFiniteOrNull(value);
+  const candidate = value && typeof value === 'object' && !Array.isArray(value) ? value.games ?? value.count : value;
+  const num = toFiniteOrNull(candidate);
   if (num === null || num <= 0) {
     return 0;
   }
@@ -226,24 +232,23 @@ const isRampageDataAvailable = (source) =>
   sumCounterAtOrAbove(source?.multi_kills, 5) !== null || source?.rampages != null;
 const isGodlikeDataAvailable = (source) =>
   sumCounterAtOrAbove(source?.kill_streaks, 9) !== null || source?.max_kill_streak != null;
-const buildAchievementTotalsFromCounts = (counts) => {
-  if (!counts || typeof counts !== 'object') {
-    return null;
-  }
-
-  const rampageCount = sumCounterAtOrAbove(counts.multi_kills, 5);
-  const godlikeCount = sumCounterAtOrAbove(counts.kill_streaks, 9);
-
+const createCoverage = (availableMatches, totalMatches) => {
+  const safeTotal = Math.max(0, Math.trunc(toFiniteOrNull(totalMatches) ?? 0));
+  const safeAvailable = clamp(
+    Math.max(0, Math.trunc(toFiniteOrNull(availableMatches) ?? 0)),
+    0,
+    safeTotal
+  );
   return {
-    rampage: rampageCount ?? 0,
-    godlike: godlikeCount ?? 0,
-    rampageDataAvailable: rampageCount !== null,
-    godlikeDataAvailable: godlikeCount !== null,
+    availableMatches: safeAvailable,
+    totalMatches: safeTotal,
+    ratio: safeTotal === 0 ? 1 : Number((safeAvailable / safeTotal).toFixed(4)),
+    complete: safeAvailable === safeTotal,
   };
 };
 const buildAchievementTotalsFromMatches = (matches) => {
   const safeMatches = toArray(matches);
-  return safeMatches.reduce(
+  const totals = safeMatches.reduce(
     (acc, match) => {
       const rampageCount = resolveRampageCount(match);
       const godlikeCount = resolveGodlikeCount(match);
@@ -252,30 +257,43 @@ const buildAchievementTotalsFromMatches = (matches) => {
 
       acc.rampage += rampageCount;
       acc.godlike += godlikeCount;
-      acc.rampageDataAvailable = acc.rampageDataAvailable || rampageDataAvailable;
-      acc.godlikeDataAvailable = acc.godlikeDataAvailable || godlikeDataAvailable;
+      acc.rampageAvailableMatches += rampageDataAvailable ? 1 : 0;
+      acc.godlikeAvailableMatches += godlikeDataAvailable ? 1 : 0;
       return acc;
     },
     {
       rampage: 0,
       godlike: 0,
-      rampageDataAvailable: false,
-      godlikeDataAvailable: false,
+      rampageAvailableMatches: 0,
+      godlikeAvailableMatches: 0,
     }
   );
+  return {
+    rampage: totals.rampage,
+    godlike: totals.godlike,
+    rampageCoverage: createCoverage(totals.rampageAvailableMatches, safeMatches.length),
+    godlikeCoverage: createCoverage(totals.godlikeAvailableMatches, safeMatches.length),
+    source: 'projected_matches',
+  };
 };
 const mergeAchievementTotals = (countsTotals, matchTotals) => {
   const counts = countsTotals ?? null;
   const matches = matchTotals ?? null;
-
-  const rampageDataAvailable = Boolean(counts?.rampageDataAvailable || matches?.rampageDataAvailable);
-  const godlikeDataAvailable = Boolean(counts?.godlikeDataAvailable || matches?.godlikeDataAvailable);
+  const rampageSource = counts?.rampageCoverage?.complete ? counts : matches;
+  const godlikeSource = counts?.godlikeCoverage?.complete ? counts : matches;
+  const rampageCoverage = rampageSource?.rampageCoverage ?? createCoverage(0, 0);
+  const godlikeCoverage = godlikeSource?.godlikeCoverage ?? createCoverage(0, 0);
 
   return {
-    rampage: counts?.rampageDataAvailable ? counts.rampage : matches?.rampage ?? 0,
-    godlike: counts?.godlikeDataAvailable ? counts.godlike : matches?.godlike ?? 0,
-    rampageDataAvailable,
-    godlikeDataAvailable,
+    rampage: rampageSource?.rampage ?? 0,
+    godlike: godlikeSource?.godlike ?? 0,
+    rampageDataAvailable: rampageCoverage.complete,
+    godlikeDataAvailable: godlikeCoverage.complete,
+    rampagePartialDataAvailable: rampageCoverage.availableMatches > 0 && !rampageCoverage.complete,
+    godlikePartialDataAvailable: godlikeCoverage.availableMatches > 0 && !godlikeCoverage.complete,
+    rampageCoverage,
+    godlikeCoverage,
+    source: counts?.rampageCoverage?.complete || counts?.godlikeCoverage?.complete ? 'counts' : matches?.source ?? 'none',
   };
 };
 const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
@@ -283,23 +301,74 @@ const normalizeAccountId = (value) => {
   const parsed = Number.parseInt(String(value), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
-
-const isMatchWin = (match) => {
-  const isRadiant = match.player_slot < 128;
-  return (isRadiant && match.radiant_win) || (!isRadiant && !match.radiant_win);
+const isAbortError = (error) => error?.name === 'AbortError';
+const createAccessIssue = (slice, error, details = {}) => ({
+  slice,
+  code: error?.code ?? 'OPTIONAL_RESOURCE_UNAVAILABLE',
+  status: Number.isFinite(error?.status) ? error.status : null,
+  resource: error?.resource ?? slice,
+  retryable: error?.retryable !== false,
+  retryAfter: Number.isFinite(error?.retryAfter) ? error.retryAfter : null,
+  message: error?.message || error?.code || 'OPTIONAL_RESOURCE_UNAVAILABLE',
+  ...details,
+});
+const settleOptional = async (slice, promise, fallback) => {
+  try {
+    return {
+      value: await promise,
+      issue: null,
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+    return {
+      value: fallback,
+      issue: createAccessIssue(slice, error),
+    };
+  }
 };
 
-const isPlayerWinInMatch = (playerSlot, radiantWin) => {
-  const isRadiant = Number(playerSlot) < 128;
-  return (isRadiant && radiantWin) || (!isRadiant && !radiantWin);
+const resolveMatchOutcome = (playerSlot, radiantWin) => {
+  const normalizedSlot = toFiniteOrNull(playerSlot);
+  if (normalizedSlot === null || (radiantWin !== true && radiantWin !== false)) {
+    return 'unknown';
+  }
+  const isRadiant = normalizedSlot < 128;
+  return (isRadiant && radiantWin) || (!isRadiant && !radiantWin) ? 'win' : 'loss';
 };
 
 const toLabel = (date) => `${pad2(date.getMonth() + 1)}/${pad2(date.getDate())}`;
+const toDateKey = (date) =>
+  `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 
-const getDayStart = (value) => {
-  const date = new Date(value);
-  date.setHours(0, 0, 0, 0);
-  return date.getTime();
+const createWindowBoundary = (days, now = new Date()) => {
+  const safeDays = Math.max(1, Math.trunc(Number(days) || 1));
+  const endExclusive = new Date(now);
+  endExclusive.setHours(0, 0, 0, 0);
+  endExclusive.setDate(endExclusive.getDate() + 1);
+  const startInclusive = new Date(endExclusive);
+  startInclusive.setDate(startInclusive.getDate() - safeDays);
+  return {
+    kind: 'local-calendar-days',
+    days: safeDays,
+    startInclusiveMs: startInclusive.getTime(),
+    endExclusiveMs: endExclusive.getTime(),
+    startInclusiveSec: Math.floor(startInclusive.getTime() / 1000),
+    endExclusiveSec: Math.floor(endExclusive.getTime() / 1000),
+    startDate: toDateKey(startInclusive),
+    endDate: toDateKey(new Date(endExclusive.getTime() - 1)),
+    timezoneOffsetMinutes: startInclusive.getTimezoneOffset(),
+  };
+};
+
+const isMatchInsideBoundary = (match, boundary) => {
+  const startTime = normalizeUnixSeconds(match?.start_time);
+  if (startTime === null) {
+    return false;
+  }
+  const startMs = startTime * 1000;
+  return startMs >= boundary.startInclusiveMs && startMs < boundary.endExclusiveMs;
 };
 
 const getMainRole = (roleCount, unknownRole) => {
@@ -311,13 +380,35 @@ const resolveRole = (match, locale) =>
   locale.laneRoleMap[match.lane_role] ?? (match.is_roaming ? locale.roamingRole : locale.unknownRole);
 const resolveHeroAttribute = (heroMeta, locale) => locale.attributeMap[heroMeta?.primaryAttr] ?? locale.unknownAttribute;
 
-const resolveRank = (match, locale) => {
-  const rankTier = match.average_rank ?? match.average_rank_tier ?? match.rank_tier;
-  if (rankTier) {
-    const major = Math.floor(rankTier / 10);
-    return locale.rankTierMap[major] ?? locale.unknownRank;
+const resolveRankTierLabel = (rankTier, locale) => {
+  const normalizedTier = toFiniteOrNull(rankTier);
+  if (normalizedTier === null || normalizedTier <= 0) {
+    return null;
   }
-  return locale.skillMap[match.skill] ?? locale.unknownRank;
+  const major = Math.floor(normalizedTier / 10);
+  return locale.rankTierMap[major] ?? locale.unknownRank;
+};
+
+const resolveMatchRankContext = (match, locale) => {
+  const averageRankTier = toFiniteOrNull(match?.average_rank ?? match?.average_rank_tier);
+  const skillTier = toFiniteOrNull(match?.skill);
+  return {
+    matchAverageRankTier: averageRankTier,
+    matchAverageRank: resolveRankTierLabel(averageRankTier, locale),
+    skillBracketTier: skillTier,
+    skillBracket: skillTier === null ? null : locale.skillMap[skillTier] ?? locale.unknownRank,
+  };
+};
+
+const resolvePlayerRankContext = (player, locale) => {
+  const playerRankTier = toFiniteOrNull(player?.rank_tier);
+  const skillTier = toFiniteOrNull(player?.skill);
+  return {
+    playerRankTier,
+    playerRank: resolveRankTierLabel(playerRankTier, locale),
+    skillBracketTier: skillTier,
+    skillBracket: skillTier === null ? null : locale.skillMap[skillTier] ?? locale.unknownRank,
+  };
 };
 
 const resolveGameMode = (match, locale) => locale.gameModeMap[match.game_mode] ?? locale.unknownMode;
@@ -360,40 +451,111 @@ const resolveItemNameByKey = (itemKey, itemMeta) => {
   return itemMeta.nameByKey.get(itemKey) ?? prettifyToken(itemKey);
 };
 
-const resolveAbilityName = (abilityId, abilityNameById) => {
+const resolveAbilityName = (abilityId, abilityMeta) => {
   const id = Number.parseInt(String(abilityId), 10);
   if (!Number.isFinite(id) || id <= 0) {
-    return null;
+    return {
+      name: null,
+      available: false,
+    };
   }
-  return abilityNameById.get(id) ?? `Ability #${id}`;
+  const mapped = abilityMeta?.nameById?.get(id);
+  return {
+    name: mapped ?? `Ability #${id}`,
+    available: Boolean(mapped),
+  };
 };
 
-const isSamePlayer = (player, accountId, playerSlot, heroId) => {
-  if (!player || typeof player !== 'object') {
-    return false;
+const resolveCurrentPlayer = (players, { accountId, playerSlot, heroId } = {}) => {
+  const safePlayers = toArray(players).filter((entry) => entry && typeof entry === 'object');
+  const normalizedAccountId = normalizeAccountId(accountId);
+  if (normalizedAccountId !== null) {
+    const accountMatches = safePlayers.filter(
+      (entry) => normalizeAccountId(entry?.account_id) === normalizedAccountId
+    );
+    if (accountMatches.length === 1) {
+      return {
+        player: accountMatches[0],
+        matchedBy: 'accountId',
+        ambiguous: false,
+      };
+    }
+    if (accountMatches.length > 1) {
+      return {
+        player: null,
+        matchedBy: null,
+        ambiguous: true,
+      };
+    }
   }
 
-  if (player.account_id != null && String(player.account_id) === String(accountId)) {
-    return true;
+  const normalizedSlot = toFiniteOrNull(playerSlot);
+  if (normalizedSlot !== null) {
+    const slotMatches = safePlayers.filter(
+      (entry) => toFiniteOrNull(entry?.player_slot) === normalizedSlot
+    );
+    if (slotMatches.length === 1) {
+      return {
+        player: slotMatches[0],
+        matchedBy: 'playerSlot',
+        ambiguous: false,
+      };
+    }
+    if (slotMatches.length > 1) {
+      return {
+        player: null,
+        matchedBy: null,
+        ambiguous: true,
+      };
+    }
   }
-  if (playerSlot != null && player.player_slot != null && Number(player.player_slot) === Number(playerSlot)) {
-    return true;
+
+  const normalizedHeroId = toFiniteOrNull(heroId);
+  if (normalizedHeroId !== null) {
+    const heroMatches = safePlayers.filter(
+      (entry) => toFiniteOrNull(entry?.hero_id) === normalizedHeroId
+    );
+    if (heroMatches.length === 1) {
+      return {
+        player: heroMatches[0],
+        matchedBy: 'heroId',
+        ambiguous: false,
+      };
+    }
+    if (heroMatches.length > 1) {
+      return {
+        player: null,
+        matchedBy: null,
+        ambiguous: true,
+      };
+    }
   }
-  if (heroId != null && player.hero_id != null && Number(player.hero_id) === Number(heroId)) {
-    return true;
-  }
-  return false;
+
+  return {
+    player: null,
+    matchedBy: null,
+    ambiguous: false,
+  };
 };
 
 const resolveTeamKills = (players, playerSlot) => {
   const isRadiant = Number(playerSlot) < 128;
-  return players.reduce((sum, player) => {
+  let total = 0;
+  for (const player of players) {
     if (!player || player.player_slot == null) {
-      return sum;
+      continue;
     }
     const sameTeam = (player.player_slot < 128) === isRadiant;
-    return sameTeam ? sum + (player.kills ?? 0) : sum;
-  }, 0);
+    if (!sameTeam) {
+      continue;
+    }
+    const kills = toFiniteOrNull(player.kills);
+    if (kills === null) {
+      return null;
+    }
+    total += kills;
+  }
+  return total;
 };
 
 const buildPurchaseTimeline = (player, itemMeta) =>
@@ -413,17 +575,33 @@ const resolvePurchaseTime = (timeline, keys) => {
   return matched ? matched.timeSec : null;
 };
 
-const buildSkillBuild = (player, abilityNameById) => {
+const resolveOwnedItemTiming = (timeline, keys, ownedFlag) => {
+  const acquiredAt = resolvePurchaseTime(timeline, keys);
+  const ownedByFlag = ownedFlag === true || (toFiniteOrNull(ownedFlag) ?? 0) > 0;
+  const owned = acquiredAt !== null || ownedByFlag;
+  return {
+    owned,
+    acquiredAt,
+    timingAvailable: acquiredAt !== null,
+    timingSource: acquiredAt !== null ? 'purchase_log' : owned ? 'unknown' : 'not_owned',
+  };
+};
+
+const buildSkillBuild = (player, abilityMeta) => {
   const withDetail = toArray(player.ability_upgrades)
     .filter((entry) => entry && entry.ability != null)
     .slice(0, SKILL_BUILD_LIMIT)
-    .map((entry, index) => ({
-      id: `ability-${index}-${entry.ability}`,
-      level: Number(entry.level) || index + 1,
-      abilityId: Number(entry.ability),
-      ability: resolveAbilityName(entry.ability, abilityNameById),
-      timeSec: Number.isFinite(Number(entry.time)) ? Math.max(0, Number(entry.time)) : null,
-    }));
+    .map((entry, index) => {
+      const ability = resolveAbilityName(entry.ability, abilityMeta);
+      return {
+        id: `ability-${index}-${entry.ability}`,
+        level: Number(entry.level) || index + 1,
+        abilityId: Number(entry.ability),
+        ability: ability.name,
+        abilityNameAvailable: ability.available,
+        timeSec: Number.isFinite(Number(entry.time)) ? Math.max(0, Number(entry.time)) : null,
+      };
+    });
 
   if (withDetail.length > 0) {
     return withDetail;
@@ -431,17 +609,27 @@ const buildSkillBuild = (player, abilityNameById) => {
 
   return toArray(player.ability_upgrades_arr)
     .slice(0, SKILL_BUILD_LIMIT)
-    .map((abilityId, index) => ({
-      id: `ability-arr-${index}-${abilityId}`,
-      level: index + 1,
-      abilityId: Number(abilityId),
-      ability: resolveAbilityName(abilityId, abilityNameById),
-      timeSec: null,
-    }));
+    .map((abilityId, index) => {
+      const ability = resolveAbilityName(abilityId, abilityMeta);
+      return {
+        id: `ability-arr-${index}-${abilityId}`,
+        level: index + 1,
+        abilityId: Number(abilityId),
+        ability: ability.name,
+        abilityNameAvailable: ability.available,
+        timeSec: null,
+      };
+    });
 };
 
-const resolveImpactScore = (isWin, kda, goldPerMin, killParticipation) => {
-  const winBoost = isWin ? 14 : 0;
+const resolveImpactScore = (outcome, kda, goldPerMin, killParticipation) => {
+  if (
+    (outcome !== 'win' && outcome !== 'loss') ||
+    !Number.isFinite(kda)
+  ) {
+    return null;
+  }
+  const winBoost = outcome === 'win' ? 14 : 0;
   const kdaScore = Math.min(kda * 9, 35);
   const gpmScore = Number.isFinite(goldPerMin) ? Math.min(goldPerMin / 11, 35) : 0;
   const kpScore = Number.isFinite(killParticipation) ? Math.min(killParticipation * 0.35, 16) : 0;
@@ -529,6 +717,7 @@ const buildTeammates = (peers, locale, limit = TEAMMATE_DISPLAY_LIMIT) =>
       const avgXpm = resolvePeerAverageStat(peer, matches, ['with_xpm', 'xpm'], ['with_xpm_sum', 'xpm_sum']);
 
       return {
+        scope: 'public-history',
         accountId: normalizeAccountId(peer?.account_id),
         playerName: resolvePeerDisplayName(peer, locale),
         playerAvatar: resolvePlayerAvatar(peer),
@@ -548,102 +737,6 @@ const buildTeammates = (peers, locale, limit = TEAMMATE_DISPLAY_LIMIT) =>
     .filter(Boolean)
     .sort((a, b) => b.matches - a.matches || b.wins - a.wins || (a.accountId ?? Number.MAX_SAFE_INTEGER) - (b.accountId ?? Number.MAX_SAFE_INTEGER))
     .slice(0, limit);
-
-const enrichTeammatesLastPlayedFromRecentMatches = async (teammates, accountId, latestMatches, client, signal) => {
-  const normalizedAccountId = normalizeAccountId(accountId);
-  if (normalizedAccountId == null) {
-    return teammates;
-  }
-
-  const targetTeammateIds = new Set(
-    teammates.map((entry) => normalizeAccountId(entry?.accountId)).filter((id) => id != null)
-  );
-  if (targetTeammateIds.size === 0) {
-    return teammates;
-  }
-
-  const recentMatchesToScan = toArray(latestMatches)
-    .filter((entry) => normalizeAccountId(entry?.match_id) != null)
-    .sort((a, b) => (toFiniteOrNull(b?.start_time) ?? 0) - (toFiniteOrNull(a?.start_time) ?? 0))
-    .slice(0, TEAMMATE_LAST_PLAYED_SCAN_LIMIT);
-  if (recentMatchesToScan.length === 0) {
-    return teammates;
-  }
-
-  const lastPlayedByTeammateId = new Map();
-
-  await Promise.all(
-    recentMatchesToScan.map(async (entry) => {
-      try {
-        const detail = await client.getMatchById(entry.match_id, signal);
-        const players = toArray(detail?.players);
-        if (players.length === 0) {
-          return;
-        }
-
-        const self = players.find((player) => normalizeAccountId(player?.account_id) === normalizedAccountId);
-        if (!self || self.player_slot == null) {
-          return;
-        }
-
-        const matchStartTime = toFiniteOrNull(detail?.start_time) ?? toFiniteOrNull(entry?.start_time);
-        if (matchStartTime == null || matchStartTime <= 0) {
-          return;
-        }
-
-        const selfOnRadiant = Number(self.player_slot) < 128;
-        players.forEach((player) => {
-          const teammateId = normalizeAccountId(player?.account_id);
-          if (teammateId == null || teammateId === normalizedAccountId || !targetTeammateIds.has(teammateId)) {
-            return;
-          }
-          if (player.player_slot == null) {
-            return;
-          }
-          const sameTeam = (Number(player.player_slot) < 128) === selfOnRadiant;
-          if (!sameTeam) {
-            return;
-          }
-
-          const previous = lastPlayedByTeammateId.get(teammateId) ?? 0;
-          if (matchStartTime > previous) {
-            lastPlayedByTeammateId.set(teammateId, matchStartTime);
-          }
-        });
-      } catch (error) {
-        if (error?.name === 'AbortError') {
-          throw error;
-        }
-      }
-    })
-  );
-
-  if (lastPlayedByTeammateId.size === 0) {
-    return teammates;
-  }
-
-  return teammates.map((entry) => {
-    const teammateId = normalizeAccountId(entry?.accountId);
-    if (teammateId == null) {
-      return entry;
-    }
-
-    const calibrated = lastPlayedByTeammateId.get(teammateId);
-    if (calibrated == null) {
-      return entry;
-    }
-
-    const previous = toFiniteOrNull(entry?.lastPlayed) ?? 0;
-    if (calibrated <= previous) {
-      return entry;
-    }
-
-    return {
-      ...entry,
-      lastPlayed: calibrated,
-    };
-  });
-};
 
 const buildTeammateSummary = (teammates) => {
   const normalized = toArray(teammates);
@@ -667,131 +760,57 @@ const buildTeammateSummary = (teammates) => {
     null;
 
   return {
+    scope: 'public-history',
     mostPlayed,
     bestWinRateOver20,
     worstWinRateOver20,
   };
 };
 
-const extractPlayerProfile = (rawPlayer) => {
-  if (!rawPlayer || typeof rawPlayer !== 'object') {
-    return null;
-  }
-
-  const profile = rawPlayer.profile && typeof rawPlayer.profile === 'object' ? rawPlayer.profile : rawPlayer;
-  const personaname = [profile.personaname, rawPlayer.personaname, rawPlayer.name].find(isNonEmptyString)?.trim() ?? '';
-  const avatarfull = [profile.avatarfull, rawPlayer.avatarfull].find(isNonEmptyString)?.trim() ?? '';
-  const avatarmedium = [profile.avatarmedium, rawPlayer.avatarmedium].find(isNonEmptyString)?.trim() ?? '';
-  const avatar = [profile.avatar, rawPlayer.avatar].find(isNonEmptyString)?.trim() ?? '';
-
-  if (!personaname && !avatarfull && !avatarmedium && !avatar) {
-    return null;
-  }
+const summarizeEmbeddedPlayerProfiles = (players) => {
+  const eligiblePlayers = toArray(players).filter(
+    (entry) => normalizeAccountId(entry?.account_id) != null
+  );
+  const availableProfiles = eligiblePlayers.filter(
+    (entry) =>
+      [entry?.personaname, entry?.name].some(isNonEmptyString) ||
+      Boolean(resolvePlayerAvatar(entry))
+  );
+  const unavailable = Math.max(0, eligiblePlayers.length - availableProfiles.length);
 
   return {
-    personaname,
-    avatarfull,
-    avatarmedium,
-    avatar,
+    eligible: eligiblePlayers.length,
+    requested: 0,
+    loaded: availableProfiles.length,
+    applied: 0,
+    failed: 0,
+    unavailable,
+    omitted: unavailable,
+    complete: unavailable === 0,
+    source: 'match',
   };
 };
 
-const hydrateMatchPlayersProfile = async (players, client, signal) => {
-  const candidateIds = [];
-  const seen = new Set();
-
-  players.forEach((entry) => {
-    const accountId = normalizeAccountId(entry?.account_id);
-    if (accountId == null || seen.has(accountId)) {
-      return;
-    }
-    seen.add(accountId);
-
-    if (resolvePlayerAvatar(entry)) {
-      return;
-    }
-    candidateIds.push(accountId);
-  });
-
-  if (candidateIds.length === 0) {
-    return players;
-  }
-
-  const accountIds = candidateIds.slice(0, MATCH_DETAIL_PLAYER_PROFILE_LIMIT);
-  const profileByAccountId = new Map();
-
-  const requests = accountIds.map(async (accountId) => {
-    try {
-      const player = await client.getPlayer(accountId, signal);
-      return [accountId, extractPlayerProfile(player)];
-    } catch (error) {
-      if (error?.name === 'AbortError') {
-        throw error;
-      }
-      return [accountId, null];
-    }
-  });
-
-  const loadedProfiles = await Promise.all(requests);
-  loadedProfiles.forEach(([accountId, profile]) => {
-    if (profile) {
-      profileByAccountId.set(accountId, profile);
-    }
-  });
-
-  if (profileByAccountId.size === 0) {
-    return players;
-  }
-
-  return players.map((entry) => {
-    const accountId = normalizeAccountId(entry?.account_id);
-    if (accountId == null) {
-      return entry;
-    }
-    const profile = profileByAccountId.get(accountId);
-    if (!profile) {
-      return entry;
-    }
-
-    const patch = {};
-    if (!isNonEmptyString(entry.personaname) && profile.personaname) {
-      patch.personaname = profile.personaname;
-    }
-    if (!isNonEmptyString(entry.avatarfull) && profile.avatarfull) {
-      patch.avatarfull = profile.avatarfull;
-    }
-    if (!isNonEmptyString(entry.avatarmedium) && profile.avatarmedium) {
-      patch.avatarmedium = profile.avatarmedium;
-    }
-    if (!isNonEmptyString(entry.avatar) && profile.avatar) {
-      patch.avatar = profile.avatar;
-    }
-
-    if (Object.keys(patch).length === 0) {
-      return entry;
-    }
-    return {
-      ...entry,
-      ...patch,
-    };
-  });
-};
-
-const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, accountId, fallback = {}) => {
+const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, currentPlayer, fallback = {}) => {
   const teamSummary = players.reduce(
     (acc, player) => {
       if (!player || player.player_slot == null) {
         return acc;
       }
       const team = player.player_slot < 128 ? 'radiant' : 'dire';
-      acc[team].kills += player.kills ?? 0;
+      const kills = toFiniteOrNull(player.kills);
+      if (kills === null) {
+        acc[team].killsComplete = false;
+      } else {
+        acc[team].kills += kills;
+      }
       acc[team].heroDamage += toFiniteOrNull(player.hero_damage) ?? 0;
       acc[team].netWorth += toFiniteOrNull(player.net_worth ?? player.total_gold) ?? 0;
       return acc;
     },
     {
-      radiant: { kills: 0, heroDamage: 0, netWorth: 0 },
-      dire: { kills: 0, heroDamage: 0, netWorth: 0 },
+      radiant: { kills: 0, killsComplete: true, heroDamage: 0, netWorth: 0 },
+      dire: { kills: 0, killsComplete: true, heroDamage: 0, netWorth: 0 },
     }
   );
 
@@ -799,13 +818,15 @@ const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, accountId, fa
     .filter((entry) => entry && entry.hero_id != null && entry.player_slot != null)
     .map((entry) => {
       const heroMeta = heroesMetaMap.get(entry.hero_id);
-      const kills = entry.kills ?? 0;
-      const deaths = entry.deaths ?? 0;
-      const assists = entry.assists ?? 0;
+      const kills = toFiniteOrNull(entry.kills);
+      const deaths = toFiniteOrNull(entry.deaths);
+      const assists = toFiniteOrNull(entry.assists);
+      const hasKda = kills !== null && deaths !== null && assists !== null;
       const team = entry.player_slot < 128 ? 'radiant' : 'dire';
       const currentTeam = teamSummary[team];
       const heroDamage = toFiniteOrNull(entry.hero_damage);
-      const isCurrentPlayer = isSamePlayer(entry, accountId, fallback.playerSlot, fallback.heroId);
+      const isCurrentPlayer = entry === currentPlayer;
+      const rankContext = resolvePlayerRankContext(entry, locale);
       const itemIds = [...ITEM_SLOTS.map((slot) => entry[`item_${slot}`]), entry.item_neutral];
       const items = itemIds
         .map((id, index) => {
@@ -824,18 +845,25 @@ const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, accountId, fa
         id: `${entry.account_id ?? 'anonymous'}-${entry.player_slot}-${entry.hero_id}`,
         accountId: entry.account_id ?? null,
         playerSlot: entry.player_slot,
-        playerName: resolvePlayerDisplayName(entry, locale),
+        playerName:
+          isCurrentPlayer && isNonEmptyString(fallback.playerName)
+            ? fallback.playerName.trim()
+            : resolvePlayerDisplayName(entry, locale),
         playerAvatar: resolvePlayerAvatar(entry, isCurrentPlayer ? fallback.playerAvatar : ''),
         team,
         heroId: entry.hero_id,
         hero: heroMeta?.name ?? `Hero #${entry.hero_id}`,
         heroAvatar: heroMeta?.avatar ?? '',
         laneRole: resolveRole(entry, locale),
-        rank: resolveRank(entry, locale),
+        rank: rankContext.playerRank ?? rankContext.skillBracket ?? locale.unknownRank,
+        rankKind: rankContext.playerRank ? 'playerRank' : rankContext.skillBracket ? 'skillBracket' : 'unknown',
+        ...rankContext,
         kills,
         deaths,
         assists,
-        kda: Number(((kills + assists) / Math.max(1, deaths)).toFixed(2)),
+        kda: hasKda
+          ? Number(((kills + assists) / Math.max(1, deaths)).toFixed(2))
+          : null,
         goldPerMin: toFiniteOrNull(entry.gold_per_min),
         xpPerMin: toFiniteOrNull(entry.xp_per_min),
         lastHits: toFiniteOrNull(entry.last_hits),
@@ -846,7 +874,9 @@ const buildAllPlayers = (players, heroesMetaMap, itemMeta, locale, accountId, fa
         heroHealing: toFiniteOrNull(entry.hero_healing),
         level: toFiniteOrNull(entry.level),
         killParticipation:
-          currentTeam.kills > 0 ? Number((((kills + assists) / currentTeam.kills) * 100).toFixed(1)) : null,
+          currentTeam.killsComplete && currentTeam.kills > 0 && kills !== null && assists !== null
+            ? Number((((kills + assists) / currentTeam.kills) * 100).toFixed(1))
+            : null,
         damageShare:
           currentTeam.heroDamage > 0 && Number.isFinite(heroDamage)
             ? Number(((heroDamage / currentTeam.heroDamage) * 100).toFixed(1))
@@ -876,118 +906,135 @@ const resolveTrendSmoothingWindow = (windowDays) => {
   return 1;
 };
 
-const smoothDailyValues = (series, windowSize, roundValue = (value) => value) => {
-  if (windowSize <= 1 || series.length <= 1) {
-    return series;
-  }
+const mergeNumericStates = (states) =>
+  states.reduce((merged, state) => {
+    Object.entries(state).forEach(([key, value]) => {
+      if (Number.isFinite(value)) {
+        merged[key] = (merged[key] ?? 0) + value;
+      }
+    });
+    return merged;
+  }, {});
 
-  return series.map((point, index) => {
-    const start = Math.max(0, index - windowSize + 1);
-    const segment = series.slice(start, index + 1);
-    const avgValue = segment.reduce((sum, item) => sum + item.value, 0) / segment.length;
-    return {
-      day: point.day,
-      value: roundValue(avgValue),
-    };
-  });
-};
-
-const buildDailyTrendSeries = (matches, days, options) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStartMs = today.getTime();
-
-  const buckets = Array.from({ length: days }, (_, index) => {
-    const offset = days - 1 - index;
-    const date = new Date(todayStartMs - offset * DAY_MS);
+const buildDailyTrendSeries = (matches, boundaryOrDays, options) => {
+  const boundary =
+    boundaryOrDays && typeof boundaryOrDays === 'object' && Number.isFinite(boundaryOrDays.startInclusiveMs)
+      ? boundaryOrDays
+      : createWindowBoundary(boundaryOrDays);
+  const buckets = Array.from({ length: boundary.days }, (_, index) => {
+    const date = new Date(boundary.startInclusiveMs);
+    date.setDate(date.getDate() + index);
     return {
       day: toLabel(date),
+      date: toDateKey(date),
       state: options.createState(),
     };
   });
+  const bucketByDate = new Map(buckets.map((bucket) => [bucket.date, bucket]));
 
-  matches.forEach((match) => {
-    const matchDayStart = getDayStart(match.start_time * 1000);
-    const diff = Math.floor((todayStartMs - matchDayStart) / DAY_MS);
-    if (diff < 0 || diff >= days) {
+  toArray(matches).forEach((match) => {
+    if (!isMatchInsideBoundary(match, boundary)) {
       return;
     }
-    const bucketIndex = days - 1 - diff;
-    options.applyMatch(buckets[bucketIndex].state, match);
+    const dateKey = toDateKey(new Date(Number(match.start_time) * 1000));
+    const bucket = bucketByDate.get(dateKey);
+    if (bucket) {
+      options.applyMatch(bucket.state, match);
+    }
   });
 
-  let previousValue = options.initialValue ?? 0;
-  const series = buckets.map((bucket) => {
-    const nextValue = options.resolveValue(bucket.state);
-    if (nextValue !== null) {
-      previousValue = nextValue;
-    }
+  const windowSize = resolveTrendSmoothingWindow(boundary.days);
+  return buckets.map((bucket, index) => {
+    const sampleCount = options.getSampleCount(bucket.state);
+    const start = Math.max(0, index - windowSize + 1);
+    const segmentStates = buckets.slice(start, index + 1).map((item) => item.state);
+    const mergedState = mergeNumericStates(segmentStates);
+    const windowSampleCount = options.getSampleCount(mergedState);
+    const rawValue = sampleCount > 0 ? options.resolveValue(bucket.state) : null;
+
     return {
       day: bucket.day,
-      value: previousValue,
+      date: bucket.date,
+      value: sampleCount > 0 && windowSampleCount > 0 ? options.resolveValue(mergedState) : null,
+      rawValue,
+      sampleCount,
+      windowSampleCount,
+      observedMatches: bucket.state.observedMatches ?? sampleCount,
+      unknownOutcomeCount: bucket.state.unknownOutcomes ?? 0,
+      rollingWindow: windowSize,
+      isGap: sampleCount === 0,
     };
   });
-
-  return smoothDailyValues(series, resolveTrendSmoothingWindow(days), options.roundValue);
 };
 
-const buildDailyWinRate = (matches, days) =>
-  buildDailyTrendSeries(matches, days, {
-    createState: () => ({ matches: 0, wins: 0 }),
+const buildDailyWinRate = (matches, boundaryOrDays) =>
+  buildDailyTrendSeries(matches, boundaryOrDays, {
+    createState: () => ({ observedMatches: 0, sampleCount: 0, wins: 0, losses: 0, unknownOutcomes: 0 }),
     applyMatch: (state, match) => {
-      state.matches += 1;
-      state.wins += isMatchWin(match) ? 1 : 0;
+      state.observedMatches += 1;
+      const outcome = resolveMatchOutcome(match.player_slot, match.radiant_win);
+      if (outcome === 'unknown') {
+        state.unknownOutcomes += 1;
+        return;
+      }
+      state.sampleCount += 1;
+      state.wins += outcome === 'win' ? 1 : 0;
+      state.losses += outcome === 'loss' ? 1 : 0;
     },
-    resolveValue: (state) => (state.matches > 0 ? Math.round((state.wins / state.matches) * 100) : null),
-    roundValue: (value) => Math.round(value),
-    initialValue: 0,
+    getSampleCount: (state) => state.sampleCount ?? 0,
+    resolveValue: (state) => Math.round((state.wins / state.sampleCount) * 100),
   });
 
-const buildDailyKdaTrend = (matches, days) =>
-  buildDailyTrendSeries(matches, days, {
-    createState: () => ({ kills: 0, deaths: 0, assists: 0, matches: 0 }),
+const buildDailyKdaTrend = (matches, boundaryOrDays) =>
+  buildDailyTrendSeries(matches, boundaryOrDays, {
+    createState: () => ({ kills: 0, deaths: 0, assists: 0, sampleCount: 0, observedMatches: 0 }),
     applyMatch: (state, match) => {
-      state.matches += 1;
-      state.kills += match.kills ?? 0;
-      state.deaths += match.deaths ?? 0;
-      state.assists += match.assists ?? 0;
+      state.observedMatches += 1;
+      const kills = toFiniteOrNull(match.kills);
+      const deaths = toFiniteOrNull(match.deaths);
+      const assists = toFiniteOrNull(match.assists);
+      if (kills === null || deaths === null || assists === null) {
+        return;
+      }
+      state.sampleCount += 1;
+      state.kills += kills;
+      state.deaths += deaths;
+      state.assists += assists;
     },
-    resolveValue: (state) =>
-      state.matches > 0 ? Number(((state.kills + state.assists) / Math.max(1, state.deaths)).toFixed(2)) : null,
-    roundValue: (value) => Number(value.toFixed(2)),
-    initialValue: 0,
+    getSampleCount: (state) => state.sampleCount ?? 0,
+    resolveValue: (state) => Number(((state.kills + state.assists) / Math.max(1, state.deaths)).toFixed(2)),
   });
 
-const buildDailyGpmTrend = (matches, days) =>
-  buildDailyTrendSeries(matches, days, {
-    createState: () => ({ gpmTotal: 0, gpmMatches: 0 }),
+const buildDailyGpmTrend = (matches, boundaryOrDays) =>
+  buildDailyTrendSeries(matches, boundaryOrDays, {
+    createState: () => ({ gpmTotal: 0, sampleCount: 0, observedMatches: 0 }),
     applyMatch: (state, match) => {
+      state.observedMatches += 1;
       const gpm = toFiniteOrNull(match.gold_per_min);
       if (gpm === null) {
         return;
       }
       state.gpmTotal += gpm;
-      state.gpmMatches += 1;
+      state.sampleCount += 1;
     },
-    resolveValue: (state) => (state.gpmMatches > 0 ? Math.round(state.gpmTotal / state.gpmMatches) : null),
-    roundValue: (value) => Math.round(value),
-    initialValue: 0,
+    getSampleCount: (state) => state.sampleCount ?? 0,
+    resolveValue: (state) => Math.round(state.gpmTotal / state.sampleCount),
   });
 
-const buildDailyXpmTrend = (matches, days) =>
-  buildDailyTrendSeries(matches, days, {
-    createState: () => ({ xpmTotal: 0, xpmMatches: 0 }),
+const buildDailyXpmTrend = (matches, boundaryOrDays) =>
+  buildDailyTrendSeries(matches, boundaryOrDays, {
+    createState: () => ({ xpmTotal: 0, sampleCount: 0, observedMatches: 0 }),
     applyMatch: (state, match) => {
+      state.observedMatches += 1;
       const xpm = toFiniteOrNull(match.xp_per_min);
       if (xpm === null) {
         return;
       }
       state.xpmTotal += xpm;
-      state.xpmMatches += 1;
+      state.sampleCount += 1;
     },
-    resolveValue: (state) => (state.xpmMatches > 0 ? Math.round(state.xpmTotal / state.xpmMatches) : null),
-    roundValue: (value) => Math.round(value),
-    initialValue: 0,
+    getSampleCount: (state) => state.sampleCount ?? 0,
+    resolveValue: (state) => Math.round(state.xpmTotal / state.sampleCount),
   });
 
 const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
@@ -1002,10 +1049,14 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
       heroAvatar: heroMeta?.avatar ?? '',
       attribute: resolveHeroAttribute(heroMeta, locale),
       matches: 0,
+      outcomeMatches: 0,
       wins: 0,
+      losses: 0,
+      unknownOutcomes: 0,
       kills: 0,
       deaths: 0,
       assists: 0,
+      kdaMatches: 0,
       gpm: 0,
       gpmMatches: 0,
       xpm: 0,
@@ -1014,10 +1065,23 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
     };
 
     record.matches += 1;
-    record.wins += isMatchWin(match) ? 1 : 0;
-    record.kills += match.kills ?? 0;
-    record.deaths += match.deaths ?? 0;
-    record.assists += match.assists ?? 0;
+    const outcome = resolveMatchOutcome(match.player_slot, match.radiant_win);
+    if (outcome === 'unknown') {
+      record.unknownOutcomes += 1;
+    } else {
+      record.outcomeMatches += 1;
+      record.wins += outcome === 'win' ? 1 : 0;
+      record.losses += outcome === 'loss' ? 1 : 0;
+    }
+    const kills = toFiniteOrNull(match.kills);
+    const deaths = toFiniteOrNull(match.deaths);
+    const assists = toFiniteOrNull(match.assists);
+    if (kills !== null && deaths !== null && assists !== null) {
+      record.kills += kills;
+      record.deaths += deaths;
+      record.assists += assists;
+      record.kdaMatches += 1;
+    }
     const gpm = toFiniteOrNull(match.gold_per_min);
     if (gpm !== null) {
       record.gpm += gpm;
@@ -1037,12 +1101,19 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
 
   return Array.from(aggregate.values())
     .map((record) => {
-      const avgKda = (record.kills + record.assists) / Math.max(1, record.deaths);
+      const avgKda =
+        record.kdaMatches > 0
+          ? (record.kills + record.assists) / Math.max(1, record.deaths)
+          : null;
       const avgGpm = record.gpmMatches > 0 ? Math.round(record.gpm / record.gpmMatches) : null;
       const avgXpm = record.xpmMatches > 0 ? Math.round(record.xpm / record.xpmMatches) : null;
-      const winRate = (record.wins / record.matches) * 100;
+      const winRate =
+        record.outcomeMatches > 0 ? (record.wins / record.outcomeMatches) * 100 : null;
       const gpmImpact = avgGpm === null ? 0 : avgGpm / 24;
-      const impact = clamp(Math.round(winRate * 0.55 + avgKda * 8 + gpmImpact), 0, 99);
+      const impact =
+        winRate === null || avgKda === null
+          ? null
+          : clamp(Math.round(winRate * 0.55 + avgKda * 8 + gpmImpact), 0, 99);
 
       return {
         heroId: record.heroId,
@@ -1051,11 +1122,18 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
         attribute: record.attribute,
         role: getMainRole(record.roleCount, locale.unknownRole),
         matches: record.matches,
+        outcomeMatches: record.outcomeMatches,
         wins: record.wins,
+        losses: record.losses,
+        unknownOutcomes: record.unknownOutcomes,
+        winRate: winRate === null ? null : Number(winRate.toFixed(1)),
         kills: record.kills,
         deaths: record.deaths,
         assists: record.assists,
-        avgKda: Number(avgKda.toFixed(2)),
+        kdaMatches: record.kdaMatches,
+        avgKda: avgKda === null ? null : Number(avgKda.toFixed(2)),
+        gpmMatches: record.gpmMatches,
+        xpmMatches: record.xpmMatches,
         avgGpm,
         avgXpm,
         impact,
@@ -1066,38 +1144,55 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
 
 const buildMatchRows = (matches, heroesMetaMap, locale) =>
   matches
-    .filter((match) => match.start_time && match.match_id)
-    .slice()
-    .sort((a, b) => b.start_time - a.start_time)
-    .map((match) => {
+    .map((match) => ({
+      match,
+      startTime: normalizeUnixSeconds(match?.start_time),
+    }))
+    .filter(({ match, startTime }) => startTime !== null && match?.match_id)
+    .sort((a, b) => b.startTime - a.startTime)
+    .map(({ match, startTime }) => {
       const heroMeta = heroesMetaMap.get(match.hero_id);
-      const kills = match.kills ?? 0;
-      const deaths = match.deaths ?? 0;
-      const assists = match.assists ?? 0;
+      const kills = toFiniteOrNull(match.kills);
+      const deaths = toFiniteOrNull(match.deaths);
+      const assists = toFiniteOrNull(match.assists);
+      const hasKda = kills !== null && deaths !== null && assists !== null;
       const rampageCount = resolveRampageCount(match);
       const godlikeCount = resolveGodlikeCount(match);
       const rampageDataAvailable = isRampageDataAvailable(match);
       const godlikeDataAvailable = isGodlikeDataAvailable(match);
+      const result = resolveMatchOutcome(match.player_slot, match.radiant_win);
+      const rankContext = resolveMatchRankContext(match, locale);
 
       return {
         matchId: match.match_id,
-        startTime: match.start_time,
+        startTime,
         playerSlot: match.player_slot ?? null,
         heroId: match.hero_id,
         hero: heroMeta?.name ?? `Hero #${match.hero_id}`,
         heroAvatar: heroMeta?.avatar ?? '',
-        result: isMatchWin(match) ? 'win' : 'loss',
+        result,
         kills,
         deaths,
         assists,
-        kda: Number(((kills + assists) / Math.max(1, deaths)).toFixed(2)),
+        kda: hasKda
+          ? Number(((kills + assists) / Math.max(1, deaths)).toFixed(2))
+          : null,
         goldPerMin: toFiniteOrNull(match.gold_per_min),
         xpPerMin: toFiniteOrNull(match.xp_per_min),
         heroDamage: toFiniteOrNull(match.hero_damage),
-        durationSec: match.duration ?? 0,
+        durationSec:
+          toFiniteOrNull(match.duration) !== null && Number(match.duration) > 0
+            ? Number(match.duration)
+            : null,
         gameMode: resolveGameMode(match, locale),
         laneRole: resolveRole(match, locale),
-        rank: resolveRank(match, locale),
+        rank: rankContext.matchAverageRank ?? rankContext.skillBracket ?? locale.unknownRank,
+        rankKind: rankContext.matchAverageRank
+          ? 'matchAverageRank'
+          : rankContext.skillBracket
+            ? 'skillBracket'
+            : 'unknown',
+        ...rankContext,
         rampageCount,
         godlikeCount,
         hasRampage: rampageCount > 0,
@@ -1113,89 +1208,204 @@ const buildRecentMatches = (matches, heroesMetaMap, locale, limit = RECENT_MATCH
 const buildRankDistribution = (matches, locale) => {
   const tierCounter = new Map();
   const skillCounter = new Map();
+  const safeMatches = toArray(matches);
 
-  matches.forEach((match) => {
-    const rankTier = match.average_rank ?? match.average_rank_tier ?? match.rank_tier;
-    if (rankTier) {
+  safeMatches.forEach((match) => {
+    const rankTier = toFiniteOrNull(match.average_rank ?? match.average_rank_tier);
+    if (rankTier !== null && rankTier > 0) {
       const major = Math.floor(rankTier / 10);
       const label = locale.rankTierMap[major];
       if (label) {
         tierCounter.set(label, (tierCounter.get(label) ?? 0) + 1);
       }
-      return;
     }
 
-    const skill = locale.skillMap[match.skill];
+    const skill = locale.skillMap[toFiniteOrNull(match.skill)];
     if (skill) {
       skillCounter.set(skill, (skillCounter.get(skill) ?? 0) + 1);
     }
   });
 
-  const source = tierCounter.size > 0 ? tierCounter : skillCounter;
-  const total = Array.from(source.values()).reduce((sum, value) => sum + value, 0);
+  const toDistribution = (counter) => {
+    const total = Array.from(counter.values()).reduce((sum, value) => sum + value, 0);
+    if (total === 0) {
+      return [];
+    }
+    return Array.from(counter.entries())
+      .map(([tier, count]) => ({
+        tier,
+        count,
+        ratio: Number(((count / total) * 100).toFixed(1)),
+      }))
+      .sort((a, b) => b.count - a.count || a.tier.localeCompare(b.tier));
+  };
+  const matchAverageRankKnown = Array.from(tierCounter.values()).reduce((sum, value) => sum + value, 0);
+  const skillBracketKnown = Array.from(skillCounter.values()).reduce((sum, value) => sum + value, 0);
 
-  if (!total) {
-    return [];
-  }
+  return {
+    matchAverageRankDistribution: toDistribution(tierCounter),
+    matchAverageRankCoverage: createCoverage(matchAverageRankKnown, safeMatches.length),
+    skillBracketDistribution: toDistribution(skillCounter),
+    skillBracketCoverage: createCoverage(skillBracketKnown, safeMatches.length),
+  };
+};
 
-  return Array.from(source.entries())
-    .map(([tier, count]) => ({
-      tier,
-      ratio: Number(((count / total) * 100).toFixed(1)),
-    }))
-    .sort((a, b) => b.ratio - a.ratio);
+const summarizeKnownOutcomeDashboard = (heroPerformance, windowMatches) => {
+  const base = summarizeDashboard(heroPerformance, windowMatches);
+  const decidedMatches = windowMatches.filter(
+    (match) => match.result === 'win' || match.result === 'loss'
+  );
+  const wins = decidedMatches.reduce(
+    (total, match) => total + (match.result === 'win' ? 1 : 0),
+    0
+  );
+  const byMatches = [...heroPerformance].sort(
+    (a, b) => b.matches - a.matches || String(a.hero).localeCompare(String(b.hero))
+  );
+  const toHeroSummary = (hero, fallback) =>
+    hero
+      ? {
+          ...hero,
+          winRate: Number.isFinite(hero.winRate) ? hero.winRate.toFixed(1) : null,
+        }
+      : fallback;
+  const eligibleWorst = heroPerformance.filter((hero) => hero.outcomeMatches >= 2);
+  const worstHero = [...eligibleWorst].sort(
+    (a, b) =>
+      a.winRate - b.winRate ||
+      b.outcomeMatches - a.outcomeMatches ||
+      b.matches - a.matches ||
+      String(a.hero).localeCompare(String(b.hero))
+  )[0];
+  const topTenPercentCount = Math.max(1, Math.ceil(byMatches.length * 0.1));
+  const signatureCandidates = byMatches
+    .slice(0, topTenPercentCount)
+    .filter((hero) => hero.outcomeMatches >= 2);
+  const signatureHero = [...signatureCandidates].sort(
+    (a, b) =>
+      b.winRate - a.winRate ||
+      b.outcomeMatches - a.outcomeMatches ||
+      String(a.hero).localeCompare(String(b.hero))
+  )[0];
+  const antiSignatureHero = [...signatureCandidates].sort(
+    (a, b) =>
+      a.winRate - b.winRate ||
+      b.outcomeMatches - a.outcomeMatches ||
+      String(a.hero).localeCompare(String(b.hero))
+  )[0];
+  const mostPlayedHero = byMatches[0];
+
+  return {
+    ...base,
+    totalMatches: windowMatches.length,
+    outcomeMatches: decidedMatches.length,
+    unknownOutcomeMatches: windowMatches.length - decidedMatches.length,
+    overallWinRate:
+      decidedMatches.length > 0 ? ((wins / decidedMatches.length) * 100).toFixed(1) : null,
+    worstHero: toHeroSummary(worstHero, {
+      hero: '-',
+      heroAvatar: '',
+      matches: 0,
+      outcomeMatches: 0,
+      winRate: null,
+    }),
+    mostPlayedHero: toHeroSummary(mostPlayedHero, base.mostPlayedHero),
+    signatureHero: toHeroSummary(signatureHero, {
+      hero: '-',
+      heroAvatar: '',
+      matches: 0,
+      outcomeMatches: 0,
+      winRate: null,
+    }),
+    antiSignatureHero: toHeroSummary(antiSignatureHero, {
+      hero: '-',
+      heroAvatar: '',
+      matches: 0,
+      outcomeMatches: 0,
+      winRate: null,
+    }),
+  };
 };
 
 export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang = 'zh') => {
   const locale = getLocaleConfig(lang);
   const client = createOpenDotaClient(lang);
+  const boundary = createWindowBoundary(days);
 
-  const [player, matches, latestMatches, heroesMetaMap, counts, peers] = await Promise.all([
+  const [player, matchWindow, heroesMetaMap, latestResource, peersResource] = await Promise.all([
     client.getPlayer(accountId, signal),
     client.getPlayerMatchesByDays(accountId, days, signal),
-    client.getPlayerLatestMatches(accountId, RECENT_MATCH_FETCH_LIMIT, signal).catch(() => []),
     client.getHeroesMetaMap(signal),
-    client.getPlayerCountsByDays(accountId, days, signal).catch(() => null),
-    client.getPlayerPeers(accountId, signal).catch(() => []),
+    settleOptional(
+      'recentMatches',
+      client.getPlayerLatestMatches(accountId, RECENT_MATCH_FETCH_LIMIT, signal),
+      []
+    ),
+    settleOptional('teammates', client.getPlayerPeers(accountId, signal), []),
   ]);
-  const teammatesRaw = buildTeammates(peers, locale);
-  const teammates = await enrichTeammatesLastPlayedFromRecentMatches(teammatesRaw, accountId, latestMatches, client, signal);
+  const rawMatches = toArray(matchWindow?.matches);
+  const validMatches = rawMatches.filter((match) => isMatchInsideBoundary(match, boundary));
+  const latestMatches = toArray(latestResource.value);
+  const teammates = buildTeammates(peersResource.value, locale);
   const teammateSummary = buildTeammateSummary(teammates);
-  const achievementTotals = mergeAchievementTotals(
-    buildAchievementTotalsFromCounts(counts),
-    buildAchievementTotalsFromMatches(matches)
-  );
-
+  const achievementTotals = mergeAchievementTotals(null, buildAchievementTotalsFromMatches(validMatches));
   const recentMatches = buildRecentMatches(latestMatches, heroesMetaMap, locale);
-  const validMatches = matches.filter((item) => item.start_time);
   const windowMatches = buildMatchRows(validMatches, heroesMetaMap, locale);
-  if (validMatches.length === 0) {
-    return {
-      playerName: player?.profile?.personaname ?? locale.playerFallback(accountId),
-      playerAvatar: resolvePlayerAvatar(player),
-      heroPerformance: [],
-      dailyWinRate: [],
-      dailyKdaTrend: [],
-      dailyGpmTrend: [],
-      dailyXpmTrend: [],
-      rankDistribution: [],
-      recentMatches,
-      windowMatches: [],
-      metrics: summarizeDashboard([], []),
-      achievementTotals,
-      teammates,
-      teammateSummary,
-      totalMatches: 0,
-      latestMatchStartTime: recentMatches[0]?.startTime ?? null,
-    };
-  }
-
   const heroPerformance = buildHeroPerformance(validMatches, heroesMetaMap, locale);
-  const dailyWinRate = buildDailyWinRate(validMatches, days);
-  const dailyKdaTrend = buildDailyKdaTrend(validMatches, days);
-  const dailyGpmTrend = buildDailyGpmTrend(validMatches, days);
-  const dailyXpmTrend = buildDailyXpmTrend(validMatches, days);
-  const rankDistribution = buildRankDistribution(validMatches, locale);
+  const dailyWinRate = buildDailyWinRate(validMatches, boundary);
+  const dailyKdaTrend = buildDailyKdaTrend(validMatches, boundary);
+  const dailyGpmTrend = buildDailyGpmTrend(validMatches, boundary);
+  const dailyXpmTrend = buildDailyXpmTrend(validMatches, boundary);
+  const rankData = buildRankDistribution(validMatches, locale);
+  const accessIssues = [latestResource.issue, peersResource.issue].filter(Boolean);
+  if (matchWindow?.truncated) {
+    accessIssues.push(
+      createAccessIssue('windowMatches', {
+        code: 'PLAYER_MATCHES_TRUNCATED',
+        resource: 'playerMatches',
+        retryable: false,
+        message:
+          lang === 'en'
+            ? 'The match history reached the retrieval limit, so this window is incomplete.'
+            : '比赛历史已达到拉取上限，当前时间窗口的数据不完整。',
+      })
+    );
+  }
+  const latestMatchStartTime = [...rawMatches, ...latestMatches].reduce((latest, match) => {
+    const startTime = normalizeUnixSeconds(match?.start_time);
+    return startTime !== null && startTime > latest ? startTime : latest;
+  }, 0);
+  const latestWindowMatchStartTime = validMatches.reduce((latest, match) => {
+    const startTime = normalizeUnixSeconds(match?.start_time);
+    return startTime !== null && startTime > latest ? startTime : latest;
+  }, 0);
+  const droppedMissingStartTime = rawMatches.filter((match) => {
+    const startTime = normalizeUnixSeconds(match?.start_time);
+    return startTime === null;
+  }).length;
+  const droppedOutsideBoundary = Math.max(
+    0,
+    rawMatches.length - validMatches.length - droppedMissingStartTime
+  );
+  const metrics = summarizeKnownOutcomeDashboard(heroPerformance, windowMatches);
+  const dataCoverage = {
+    requestedDays: boundary.days,
+    retrievedMatches: rawMatches.length,
+    includedMatches: validMatches.length,
+    droppedMissingStartTime,
+    droppedOutsideBoundary,
+    pageCount: matchWindow?.pageCount ?? 0,
+    pageLimit: matchWindow?.pageLimit ?? null,
+    maxPages: matchWindow?.maxPages ?? null,
+    truncated: matchWindow?.truncated === true,
+    projectionFallback: matchWindow?.projectionFallback === true,
+    windowComplete: matchWindow?.truncated !== true,
+    complete: accessIssues.length === 0,
+    optionalSlices: {
+      recentMatches: latestResource.issue ? 'unavailable' : 'available',
+      teammates: peersResource.issue ? 'unavailable' : 'available',
+    },
+  };
 
   return {
     playerName: player?.profile?.personaname ?? locale.playerFallback(accountId),
@@ -1205,15 +1415,28 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     dailyKdaTrend,
     dailyGpmTrend,
     dailyXpmTrend,
-    rankDistribution,
+    rankDistribution: rankData.matchAverageRankDistribution,
+    rankDistributionCoverage: rankData.matchAverageRankCoverage,
+    skillBracketDistribution: rankData.skillBracketDistribution,
+    skillBracketCoverage: rankData.skillBracketCoverage,
     recentMatches,
     windowMatches,
-    metrics: summarizeDashboard(heroPerformance, windowMatches),
+    metrics,
     achievementTotals,
     teammates,
+    teammateScope: 'public-history',
     teammateSummary,
     totalMatches: validMatches.length,
-    latestMatchStartTime: validMatches[0]?.start_time ?? null,
+    outcomeMatches: metrics.outcomeMatches,
+    unknownOutcomeMatches: metrics.unknownOutcomeMatches,
+    latestMatchStartTime: latestMatchStartTime || null,
+    latestWindowMatchStartTime: latestWindowMatchStartTime || null,
+    windowBoundary: boundary,
+    truncated: matchWindow?.truncated === true,
+    dataCoverage,
+    accessIssues,
+    partial: accessIssues.length > 0,
+    status: accessIssues.length > 0 ? 'partial' : 'complete',
   };
 };
 
@@ -1226,42 +1449,136 @@ export const fetchRecentMatchDetail = async (
 ) => {
   const locale = getLocaleConfig(lang);
   const client = createOpenDotaClient(lang);
+  const emptyItemMeta = {
+    nameById: new Map(),
+    nameByKey: new Map(),
+    itemById: new Map(),
+    itemByKey: new Map(),
+  };
+  const emptyAbilityMeta = {
+    nameById: new Map(),
+    available: false,
+    source: 'fallback',
+    issue: {
+      code: 'ABILITY_NAMES_UNAVAILABLE',
+      resource: 'abilities',
+      retryable: false,
+    },
+  };
 
-  const [match, heroesMetaMap, itemMeta, abilityNameById] = await Promise.all([
+  const [match, heroesMetaMap, itemResource, abilityResource] = await Promise.all([
     client.getMatchById(matchId, signal),
     client.getHeroesMetaMap(signal),
-    client
-      .getItemMeta(signal)
-      .catch(() => ({ nameById: new Map(), nameByKey: new Map(), itemById: new Map(), itemByKey: new Map() })),
-    client.getAbilityNameById(signal).catch(() => new Map()),
+    settleOptional('itemMetadata', client.getItemMeta(signal), emptyItemMeta),
+    settleOptional('abilityNames', client.getAbilityNameById(signal), emptyAbilityMeta),
   ]);
+  const itemMeta = itemResource.value;
+  const abilityMeta = abilityResource.value;
 
   const rawPlayers = toArray(match.players);
-  const players = await hydrateMatchPlayersProfile(rawPlayers, client, signal);
-  const player =
-    players.find((entry) => isSamePlayer(entry, accountId, fallback.playerSlot, fallback.heroId)) ?? players[0] ?? null;
+  const players = rawPlayers;
+  const playerProfileCoverage = summarizeEmbeddedPlayerProfiles(players);
+  const playerIdentity = resolveCurrentPlayer(players, {
+    accountId,
+    playerSlot: fallback.playerSlot,
+    heroId: fallback.heroId,
+  });
+  const player = playerIdentity.player;
 
   if (!player) {
-    throw new Error(lang === 'en' ? 'Match detail is unavailable.' : '当前比赛详情不可用。');
+    const error = new Error(
+      lang === 'en'
+        ? 'The requested player could not be identified in this match.'
+        : '无法在该场比赛中可靠识别当前玩家。'
+    );
+    error.code = playerIdentity.ambiguous ? 'MATCH_PLAYER_AMBIGUOUS' : 'MATCH_PLAYER_NOT_FOUND';
+    error.resource = 'matchPlayer';
+    error.retryable = false;
+    throw error;
   }
 
-  const isWin = isPlayerWinInMatch(player.player_slot, match.radiant_win);
-  const kills = player.kills ?? 0;
-  const deaths = player.deaths ?? 0;
-  const assists = player.assists ?? 0;
-  const kda = Number(((kills + assists) / Math.max(1, deaths)).toFixed(2));
+  const outcome = resolveMatchOutcome(player.player_slot, match.radiant_win);
+  const kills = toFiniteOrNull(player.kills);
+  const deaths = toFiniteOrNull(player.deaths);
+  const assists = toFiniteOrNull(player.assists);
+  const hasKda = kills !== null && deaths !== null && assists !== null;
+  const kda = hasKda
+    ? Number(((kills + assists) / Math.max(1, deaths)).toFixed(2))
+    : null;
   const goldPerMin = toFiniteOrNull(player.gold_per_min);
   const xpPerMin = toFiniteOrNull(player.xp_per_min);
   const teamKills = resolveTeamKills(players, player.player_slot);
-  const killParticipation = teamKills > 0 ? Number((((kills + assists) / teamKills) * 100).toFixed(1)) : null;
+  const killParticipation =
+    Number.isFinite(teamKills) &&
+    teamKills > 0 &&
+    kills !== null &&
+    assists !== null
+      ? Number((((kills + assists) / teamKills) * 100).toFixed(1))
+      : null;
   const timeline = buildPurchaseTimeline(player, itemMeta);
   const rampageCount = resolveRampageCount(player);
   const godlikeCount = resolveGodlikeCount(player);
   const rampageDataAvailable = isRampageDataAvailable(player);
   const godlikeDataAvailable = isGodlikeDataAvailable(player);
-
   const heroMeta = heroesMetaMap.get(player.hero_id);
-  const impactScore = resolveImpactScore(isWin, kda, goldPerMin, killParticipation);
+  const impactScore = resolveImpactScore(outcome, kda, goldPerMin, killParticipation);
+  const playerRankContext = resolvePlayerRankContext(player, locale);
+  const matchRankContext = resolveMatchRankContext(match, locale);
+  const resolvedSkillBracket =
+    matchRankContext.skillBracket ?? playerRankContext.skillBracket;
+  const resolvedSkillBracketTier =
+    matchRankContext.skillBracketTier ?? playerRankContext.skillBracketTier;
+  const rank =
+    playerRankContext.playerRank ??
+    matchRankContext.matchAverageRank ??
+    resolvedSkillBracket ??
+    locale.unknownRank;
+  const rankKind = playerRankContext.playerRank
+    ? 'playerRank'
+    : matchRankContext.matchAverageRank
+      ? 'matchAverageRank'
+      : resolvedSkillBracket
+        ? 'skillBracket'
+        : 'unknown';
+  const scepterTiming = resolveOwnedItemTiming(
+    timeline,
+    ['ultimate_scepter', 'ultimate_scepter_2', 'aghanims_scepter'],
+    player.aghanims_scepter
+  );
+  const shardTiming = resolveOwnedItemTiming(
+    timeline,
+    ['aghanims_shard', 'aghanims_shard_roshan'],
+    player.aghanims_shard
+  );
+  const abilityIssue =
+    abilityResource.issue ??
+    (abilityMeta?.issue || abilityMeta?.available === false
+      ? createAccessIssue('abilityNames', {
+          ...(abilityMeta?.issue ?? {}),
+          message:
+            lang === 'en'
+              ? 'Ability names are unavailable; numeric ability identifiers are shown instead.'
+              : '技能名称暂不可用，当前改为显示技能数字 ID。',
+        })
+      : null);
+  const accessIssues = [
+    itemResource.issue,
+    abilityIssue,
+    playerProfileCoverage.complete
+      ? null
+      : createAccessIssue('playerProfiles', {
+          code: 'PLAYER_PROFILES_PARTIAL',
+          resource: 'matchPlayers',
+          retryable: false,
+          message:
+            lang === 'en'
+              ? `${playerProfileCoverage.unavailable} public player profile(s) are unavailable; fallback labels are shown.`
+              : `${playerProfileCoverage.unavailable} 位玩家的公开资料不可用，当前显示回退名称。`,
+        }),
+  ].filter(Boolean);
+  const detailStartTime =
+    normalizeUnixSeconds(match.start_time) ??
+    normalizeUnixSeconds(fallback.startTime);
 
   return {
     matchId: match.match_id ?? matchId,
@@ -1269,13 +1586,20 @@ export const fetchRecentMatchDetail = async (
     hero: heroMeta?.name ?? fallback.hero ?? `Hero #${player.hero_id}`,
     heroAvatar: heroMeta?.avatar ?? fallback.heroAvatar ?? '',
     overview: {
-      result: isWin ? 'win' : 'loss',
-      startTime: match.start_time ?? fallback.startTime ?? null,
+      result: outcome,
+      startTime: detailStartTime,
       durationSec: match.duration ?? fallback.durationSec ?? 0,
       gameMode: resolveGameMode(match, locale),
       queueType: resolveQueueType(match, locale),
       laneRole: resolveRole(player, locale),
-      rank: resolveRank(player, locale),
+      rank,
+      rankKind,
+      playerRank: playerRankContext.playerRank,
+      playerRankTier: playerRankContext.playerRankTier,
+      matchAverageRank: matchRankContext.matchAverageRank,
+      matchAverageRankTier: matchRankContext.matchAverageRankTier,
+      skillBracket: resolvedSkillBracket,
+      skillBracketTier: resolvedSkillBracketTier,
       kills,
       deaths,
       assists,
@@ -1305,13 +1629,50 @@ export const fetchRecentMatchDetail = async (
       finalItems: ITEM_SLOTS.map((slot) => resolveItemNameById(player[`item_${slot}`], itemMeta)).filter(Boolean),
       neutralItem: resolveItemNameById(player.item_neutral, itemMeta),
       purchaseTimeline: timeline,
-      skillBuild: buildSkillBuild(player, abilityNameById),
-      scepterTimeSec:
-        resolvePurchaseTime(timeline, ['ultimate_scepter', 'ultimate_scepter_2', 'aghanims_scepter']) ??
-        (player.aghanims_scepter ? 0 : null),
-      shardTimeSec:
-        resolvePurchaseTime(timeline, ['aghanims_shard', 'aghanims_shard_roshan']) ?? (player.aghanims_shard ? 0 : null),
+      skillBuild: buildSkillBuild(player, abilityMeta),
+      scepterTimeSec: scepterTiming.acquiredAt,
+      scepterOwned: scepterTiming.owned,
+      scepterTimingAvailable: scepterTiming.timingAvailable,
+      scepterTimingSource: scepterTiming.timingSource,
+      shardTimeSec: shardTiming.acquiredAt,
+      shardOwned: shardTiming.owned,
+      shardTimingAvailable: shardTiming.timingAvailable,
+      shardTimingSource: shardTiming.timingSource,
     },
-    allPlayers: buildAllPlayers(players, heroesMetaMap, itemMeta, locale, accountId, fallback),
+    allPlayers: buildAllPlayers(players, heroesMetaMap, itemMeta, locale, player, fallback),
+    playerIdentity: {
+      matchedBy: playerIdentity.matchedBy,
+      ambiguous: playerIdentity.ambiguous,
+    },
+    dataCoverage: {
+      playerProfiles: playerProfileCoverage,
+      abilityNames: {
+        available: abilityMeta?.available === true,
+        source: abilityMeta?.source ?? 'fallback',
+      },
+      itemMetadata: {
+        available: !itemResource.issue,
+      },
+    },
+    accessIssues,
+    partial: accessIssues.length > 0,
+    status: accessIssues.length > 0 ? 'partial' : 'complete',
   };
 };
+
+export const openDotaTesting = Object.freeze({
+  buildAchievementTotalsFromMatches,
+  buildDailyKdaTrend,
+  buildDailyWinRate,
+  buildHeroPerformance,
+  buildMatchRows,
+  buildRankDistribution,
+  createWindowBoundary,
+  isMatchInsideBoundary,
+  mergeAchievementTotals,
+  resolveCurrentPlayer,
+  resolveImpactScore,
+  resolveMatchOutcome,
+  resolveOwnedItemTiming,
+  summarizeKnownOutcomeDashboard,
+});

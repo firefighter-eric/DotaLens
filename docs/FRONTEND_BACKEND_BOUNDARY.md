@@ -28,14 +28,13 @@
 - 统一处理 HTTP 错误（404 / 429 / 其他）。
 - 参数兜底（如 `days`、`limit`）和数组/空值兜底。
 - 处理窗口比赛分页拉取与去重。
-- 维护英雄/物品元数据缓存。
+- 维护有 TTL、去重、按资源失效与详情 LRU 上限的响应缓存。
 
 当前 client 暴露的主要接口：
 
 - `getPlayer`
 - `getPlayerPeers`
 - `getMatchById`
-- `getPlayerCountsByDays`
 - `getPlayerMatchesByDays`
 - `getPlayerLatestMatches`
 - `getHeroesMetaMap`
@@ -74,8 +73,7 @@
 3. `src/services/opendotaClient.js` 请求：
    - `/players/{accountId}`
    - `/players/{accountId}/matches?date={days}&significant=0&limit=...&offset=...`
-   - `/players/{accountId}/recentMatches`，失败时回退到 `/players/{accountId}/matches?limit=...`
-   - `/players/{accountId}/counts?date={days}&significant=0`
+   - `/players/{accountId}/recentMatches`（可选切片，失败时返回明确的 `accessIssues`）
    - `/players/{accountId}/peers`
 4. `src/services/opendota.js` 聚合并返回 dashboard ViewModel。
 
@@ -89,7 +87,7 @@
 ### 队友协同链路
 
 1. `fetchPlayerWindowAnalytics` 并发请求 `/players/{accountId}/peers` 与最近比赛。
-2. `src/services/opendota.js` 先构造 peers 基础统计，再通过最近比赛细化 `lastPlayed`。
+2. `src/services/opendota.js` 直接按 peers 的公开历史口径构造协同统计与 `last_played`；不会伪装成 30/365 天窗口统计。
 3. `src/App.jsx` 将 `teammates` 与 `teammateSummary` 传给 `TeammatesPanel`。
 
 ## 3. 本地目录与远端数据的边界
@@ -121,7 +119,9 @@
 
 ```bash
 npm run lint
+npm run test:coverage
 npm run build
+npm run check:budget
 ```
 
 建议功能回归：

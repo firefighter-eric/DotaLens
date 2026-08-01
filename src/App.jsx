@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import StatCard from './components/StatCard.jsx';
 import WinRateTrend from './components/WinRateTrend.jsx';
 import HourlyMatchTrend from './components/HourlyMatchTrend.jsx';
@@ -7,31 +7,38 @@ import RankDistribution from './components/RankDistribution.jsx';
 import GameModeDistributionPie from './components/GameModeDistributionPie.jsx';
 import RecentMatchesPanel from './components/RecentMatchesPanel.jsx';
 import RecentMatchDetailDrawer from './components/RecentMatchDetailDrawer.jsx';
-import CatalogListPanel from './components/CatalogListPanel.jsx';
 import TeammatesPanel from './components/TeammatesPanel.jsx';
+import CoachPanel from './components/CoachPanel.jsx';
+import OverviewHeroFocus from './components/OverviewHeroFocus.jsx';
+import OverviewRecentMatches from './components/OverviewRecentMatches.jsx';
+import AccountModal from './components/AccountModal.jsx';
 import { dailyGpmTrend, dailyKdaTrend, dailyWinRate, dailyXpmTrend, heroPerformance, rankDistribution, recentMatches } from './data/mockDotaData.js';
-import { heroCatalog } from './data/heroCatalog.js';
-import { itemCatalog } from './data/itemCatalog.js';
 import {
   buildGameModeDistribution,
   buildHourlyMatchDistribution,
+  resolveHeroWinRate,
   summarizeDashboard,
   summarizeOverviewExtremes,
   summarizeRecentMatches,
   summarizeSideWinRates,
 } from './utils/metrics.js';
-import { fetchPlayerWindowAnalytics, fetchRecentMatchDetail } from './services/opendota.js';
-import { createOpenDotaClient } from './services/opendotaClient.js';
+import { fetchRecentMatchDetail } from './services/opendota.js';
+import { createOpenDotaClient, invalidateOpenDotaCache } from './services/opendotaClient.js';
 import { getCopy } from './i18n/copy.js';
+import { createAnalyticsQueryKey, usePlayerAnalytics } from './hooks/usePlayerAnalytics.js';
+import { buildCoachInsights } from './utils/coachInsights.js';
+import { toValidUnixDate } from './utils/date.js';
+import {
+  isSameAccount,
+  loadAccountSession,
+  MAX_SAVED_ACCOUNTS,
+  parseSteam32,
+  saveAccountSession,
+} from './utils/accountSession.js';
 
-const MAX_UINT32 = 4294967295n;
-const DEFAULT_STEAM32_ID = '898754153';
-const DEFAULT_SAMPLE_PLAYER_NAME = getCopy('zh').misc.samplePlayerName;
-const MAX_SAVED_ACCOUNTS = 5;
-const ACCOUNT_STORAGE_KEY = 'dotalens.accounts.v1';
+const CatalogTab = lazy(() => import('./components/CatalogTab.jsx'));
+
 const RECENT_MATCHES_PAGE_SIZE = 30;
-const SUPPORTED_TIME_WINDOWS = [30, 365];
-const DEFAULT_TIME_WINDOW = 365;
 const TAB_IDS = {
   overview: 'overview',
   trend: 'trend',
@@ -41,43 +48,12 @@ const TAB_IDS = {
   allHeroes: 'allHeroes',
   allItems: 'allItems',
 };
-
-const HERO_ATTRIBUTE_CATEGORY_MAP = {
-  str: 'strength',
-  agi: 'agility',
-  int: 'intelligence',
-  all: 'universal',
-};
-
-const normalizePrimaryAttr = (value) => {
-  const normalized = String(value ?? '')
-    .trim()
-    .toLowerCase();
-  if (normalized === 'universal') {
-    return 'all';
-  }
-  if (normalized === 'str' || normalized === 'agi' || normalized === 'int' || normalized === 'all') {
-    return normalized;
-  }
-  return '';
-};
-
-const resolveHeroCategory = (primaryAttr) => HERO_ATTRIBUTE_CATEGORY_MAP[normalizePrimaryAttr(primaryAttr)] ?? 'unknown';
-
-const ITEM_CATEGORY_RULES = [
-  { id: 'consumable', keywords: ['tango', 'clarity', 'flask', 'dust', 'ward', 'smoke', 'tpscroll', 'mango', 'faerie'] },
-  { id: 'attribute', keywords: ['gauntlets', 'slippers', 'mantle', 'circlet', 'belt', 'robe', 'branch', 'ogre_axe', 'blade_of_alacrity', 'staff_of_wizardry'] },
-  { id: 'support', keywords: ['mekansm', 'greaves', 'pipe', 'drum', 'vladmir', 'glimmer', 'force_staff', 'lotus', 'urn', 'vessel'] },
-  { id: 'magic', keywords: ['dagon', 'veil', 'kaya', 'sange_and_kaya', 'ethereal_blade', 'octarine', 'wind_waker'] },
-  { id: 'armor', keywords: ['platemail', 'assault', 'shivas', 'mail', 'buckler', 'helm', 'blade_mail', 'lotus_orb'] },
-  { id: 'weapon', keywords: ['sword', 'blade', 'desolator', 'daedalus', 'rapier', 'butterfly', 'basher', 'abyssal', 'manta', 'echo_sabre'] },
+const NAV_GROUPS = [
+  { id: 'home', tabs: [TAB_IDS.overview] },
+  { id: 'matches', tabs: [TAB_IDS.recentMatches] },
+  { id: 'improve', tabs: [TAB_IDS.heroes, TAB_IDS.teammates, TAB_IDS.trend] },
+  { id: 'library', tabs: [TAB_IDS.allHeroes, TAB_IDS.allItems] },
 ];
-
-const resolveItemCategory = (key) => {
-  const normalized = String(key ?? '').toLowerCase();
-  const matched = ITEM_CATEGORY_RULES.find((rule) => rule.keywords.some((keyword) => normalized.includes(keyword)));
-  return matched?.id ?? 'equipment';
-};
 
 const MOCK_ATTRIBUTE_LABEL = {
   zh: {
@@ -107,37 +83,15 @@ const localizeMockAttribute = (attribute, lang) => {
 };
 
 const toFiniteOrNull = (value) => {
+  if (value == null || (typeof value === 'string' && value.trim() === '')) {
+    return null;
+  }
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 };
 
 const calculateKda = (kills, deaths, assists) =>
   Number((((kills ?? 0) + (assists ?? 0)) / Math.max(1, deaths ?? 0)).toFixed(2));
-
-const formatGrowthValue = (baseValue, gainValue, fallback) => {
-  const base = toFiniteOrNull(baseValue);
-  const gain = toFiniteOrNull(gainValue);
-  if (base === null) {
-    return fallback;
-  }
-  if (gain === null) {
-    return String(base);
-  }
-  return `${base} (+${gain.toFixed(1)})`;
-};
-
-const formatNumberValue = (value, fallback) => {
-  const number = toFiniteOrNull(value);
-  return number === null ? fallback : String(number);
-};
-
-const formatRolesValue = (roles, fallback) => {
-  if (!Array.isArray(roles) || roles.length === 0) {
-    return fallback;
-  }
-  const normalized = roles.filter(Boolean);
-  return normalized.length > 0 ? normalized.join(' / ') : fallback;
-};
 
 const createMockDashboard = (copy, lang = 'zh') => {
   const localizedHeroPerformance = heroPerformance.map((hero) => ({
@@ -159,6 +113,16 @@ const createMockDashboard = (copy, lang = 'zh') => {
     },
     { rampage: 0, godlike: 0, rampageDataAvailable: true, godlikeDataAvailable: true }
   );
+  const completeCoverage = {
+    availableMatches: localizedRecentMatches.length,
+    totalMatches: localizedRecentMatches.length,
+    ratio: 1,
+    complete: true,
+  };
+  achievementTotals.rampageCoverage = completeCoverage;
+  achievementTotals.godlikeCoverage = completeCoverage;
+  achievementTotals.rampagePartialDataAvailable = false;
+  achievementTotals.godlikePartialDataAvailable = false;
   const teammates = [
     {
       accountId: 1,
@@ -249,37 +213,9 @@ const createMockDashboard = (copy, lang = 'zh') => {
   };
 };
 
-const parseSteam32 = (value, copy) => {
-  if (!/^\d+$/.test(value)) {
-    return {
-      valid: false,
-      message: copy.errors.steamNumeric,
-    };
-  }
-
-  try {
-    const steam32 = BigInt(value);
-    if (steam32 <= 0n || steam32 > MAX_UINT32) {
-      return {
-        valid: false,
-        message: copy.errors.steamInvalid,
-      };
-    }
-
-    return {
-      valid: true,
-      accountId: steam32.toString(),
-    };
-  } catch {
-    return {
-      valid: false,
-      message: copy.errors.steamInvalid,
-    };
-  }
-};
-
 const formatMatchDate = (startTime, lang) => {
-  if (!startTime) {
+  const date = toValidUnixDate(startTime);
+  if (!date) {
     return '';
   }
 
@@ -288,7 +224,7 @@ const formatMatchDate = (startTime, lang) => {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date(startTime * 1000));
+  }).format(date);
 };
 
 const formatIntegerDisplay = (value, lang, fallback) => {
@@ -301,7 +237,8 @@ const formatIntegerDisplay = (value, lang, fallback) => {
 };
 
 const formatMatchDateTime = (startTime, lang, fallback) => {
-  if (!startTime) {
+  const date = toValidUnixDate(startTime);
+  if (!date) {
     return fallback;
   }
   const locale = lang === 'en' ? 'en-US' : 'zh-CN';
@@ -311,7 +248,7 @@ const formatMatchDateTime = (startTime, lang, fallback) => {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  }).format(new Date(startTime * 1000));
+  }).format(date);
 };
 
 const formatEntryValue = (value, fallback) => {
@@ -418,6 +355,8 @@ const createMockRecentMatchDetail = (match, lang) => {
       godlikeCount,
       hasRampage: rampageCount > 0,
       hasGodlike: godlikeCount > 0,
+      rampageDataAvailable: true,
+      godlikeDataAvailable: true,
     },
     core: {
       heroDamage: Math.round(normalizedGpm * 40 + normalizedXpm * 5),
@@ -458,22 +397,30 @@ const compareHeroes = (a, b, sortKey, sortDir, lang) => {
       return hero.matches;
     }
     if (sortKey === 'winRate') {
-      return hero.matches ? hero.wins / hero.matches : 0;
+      return resolveHeroWinRate(hero);
     }
     if (sortKey === 'avgKda') {
       return hero.avgKda;
     }
     if (sortKey === 'avgGpm') {
-      return Number.isFinite(hero.avgGpm) ? hero.avgGpm : -1;
+      return Number.isFinite(hero.avgGpm) ? hero.avgGpm : null;
     }
     if (sortKey === 'avgXpm') {
-      return Number.isFinite(hero.avgXpm) ? hero.avgXpm : -1;
+      return Number.isFinite(hero.avgXpm) ? hero.avgXpm : null;
     }
     return hero.impact;
   };
 
   const av = getValue(a);
   const bv = getValue(b);
+  const aMissing = av == null || (typeof av === 'number' && !Number.isFinite(av));
+  const bMissing = bv == null || (typeof bv === 'number' && !Number.isFinite(bv));
+  if (aMissing || bMissing) {
+    if (aMissing !== bMissing) {
+      return aMissing ? 1 : -1;
+    }
+    return a.hero.localeCompare(b.hero, locale);
+  }
 
   if (typeof av === 'string' && typeof bv === 'string') {
     const base = av.localeCompare(bv, locale);
@@ -495,130 +442,11 @@ const escapeCsvCell = (value) => {
   return `"${text.replace(/"/g, '""')}"`;
 };
 
-const isSameAccount = (a, b) => a.accountId === b.accountId && a.rawId === b.rawId;
-
-const createDefaultAccount = () => ({
-  rawId: DEFAULT_STEAM32_ID,
-  accountId: DEFAULT_STEAM32_ID,
-  nickname: DEFAULT_SAMPLE_PLAYER_NAME,
-  avatar: '',
-});
-
-const sanitizePersistedAccount = (value) => {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-
-  const idType = typeof value.idType === 'string' ? value.idType : 'steam';
-  const rawId = typeof value.rawId === 'string' ? value.rawId.trim() : '';
-  const accountId = typeof value.accountId === 'string' ? value.accountId.trim() : '';
-  const nickname = typeof value.nickname === 'string' ? value.nickname.trim() : '';
-  const avatar = typeof value.avatar === 'string' ? value.avatar.trim() : '';
-
-  if (idType !== 'steam' || !rawId || !accountId || !/^\d+$/.test(rawId) || !/^\d+$/.test(accountId)) {
-    return null;
-  }
-
-  try {
-    const rawSteam32 = BigInt(rawId);
-    const accountSteam32 = BigInt(accountId);
-    if (rawSteam32 <= 0n || rawSteam32 > MAX_UINT32 || accountSteam32 <= 0n || accountSteam32 > MAX_UINT32) {
-      return null;
-    }
-  } catch {
-    return null;
-  }
-
-  return {
-    rawId,
-    accountId,
-    nickname: nickname || rawId,
-    avatar,
-  };
-};
-
-const sanitizePersistedAccounts = (value) => {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-
-  const seen = new Set();
-  const accounts = [];
-  for (const item of value) {
-    const account = sanitizePersistedAccount(item);
-    if (!account) {
-      continue;
-    }
-
-    const key = `${account.rawId}:${account.accountId}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    accounts.push(account);
-
-    if (accounts.length >= MAX_SAVED_ACCOUNTS) {
-      break;
-    }
-  }
-
-  return accounts.length ? accounts : null;
-};
-
-const sanitizePersistedDays = (value) => {
-  const parsed = Number(value);
-  return SUPPORTED_TIME_WINDOWS.includes(parsed) ? parsed : null;
-};
-
-const createDefaultSession = () => {
-  const defaultAccount = createDefaultAccount();
-  return {
-    inputAccountId: defaultAccount.rawId,
-    savedAccounts: [defaultAccount],
-    queryAccountId: defaultAccount.accountId,
-    queryRawId: defaultAccount.rawId,
-    days: DEFAULT_TIME_WINDOW,
-  };
-};
-
-const loadSessionFromStorage = () => {
-  const fallback = createDefaultSession();
-  if (typeof window === 'undefined') {
-    return fallback;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(ACCOUNT_STORAGE_KEY);
-    if (!raw) {
-      return fallback;
-    }
-
-    const parsed = JSON.parse(raw);
-    const savedAccounts = sanitizePersistedAccounts(parsed?.savedAccounts) ?? fallback.savedAccounts;
-    const persistedActive = sanitizePersistedAccount(parsed?.activeAccount);
-    const days = sanitizePersistedDays(parsed?.days) ?? fallback.days;
-    const activeAccount =
-      persistedActive && savedAccounts.some((item) => isSameAccount(item, persistedActive))
-        ? persistedActive
-        : savedAccounts[0];
-
-    return {
-      inputAccountId: activeAccount.rawId,
-      savedAccounts,
-      queryAccountId: activeAccount.accountId,
-      queryRawId: activeAccount.rawId,
-      days,
-    };
-  } catch {
-    return fallback;
-  }
-};
-
 function App() {
   const [lang, setLang] = useState('zh');
   const copy = useMemo(() => getCopy(lang), [lang]);
 
-  const [sessionSeed] = useState(() => loadSessionFromStorage());
+  const [sessionSeed] = useState(() => loadAccountSession());
   const [inputAccountId, setInputAccountId] = useState(sessionSeed.inputAccountId);
   const [savedAccounts, setSavedAccounts] = useState(sessionSeed.savedAccounts);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
@@ -626,7 +454,7 @@ function App() {
   const [queryRawId, setQueryRawId] = useState(sessionSeed.queryRawId);
   const [reloadKey, setReloadKey] = useState(0);
   const [days, setDays] = useState(sessionSeed.days);
-  const [activeTab, setActiveTab] = useState(TAB_IDS.recentMatches);
+  const [activeTab, setActiveTab] = useState(TAB_IDS.overview);
   const [recentMatchesPage, setRecentMatchesPage] = useState(1);
   const [sortKey, setSortKey] = useState('winRate');
   const [sortDir, setSortDir] = useState('desc');
@@ -634,15 +462,38 @@ function App() {
   const [minMatches, setMinMatches] = useState(2);
   const [selectedHeroRowId, setSelectedHeroRowId] = useState(null);
   const [heroRowManuallyCollapsed, setHeroRowManuallyCollapsed] = useState(false);
-  const [dashboard, setDashboard] = useState(() => createMockDashboard(getCopy('zh'), 'zh'));
+  const [showSample, setShowSample] = useState(() => !sessionSeed.queryAccountId);
   const [heroMetaById, setHeroMetaById] = useState(() => new Map());
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [inputError, setInputError] = useState('');
   const [selectedRecentMatchId, setSelectedRecentMatchId] = useState(null);
   const [recentMatchDetail, setRecentMatchDetail] = useState(null);
   const [recentMatchDetailLoading, setRecentMatchDetailLoading] = useState(false);
-  const [recentMatchDetailError, setRecentMatchDetailError] = useState('');
-  const selectableMatches = useMemo(() => {
+  const [recentMatchDetailError, setRecentMatchDetailError] = useState(null);
+  const [recentMatchDetailReloadKey, setRecentMatchDetailReloadKey] = useState(0);
+  const [retryDelaySeconds, setRetryDelaySeconds] = useState(0);
+  const tabRefs = useRef(new Map());
+  const analyticsResource = usePlayerAnalytics({
+    accountId: queryAccountId,
+    days,
+    lang,
+    reloadKey,
+  });
+  const sampleDashboard = useMemo(() => createMockDashboard(copy, lang), [copy, lang]);
+  const activeAnalyticsQueryKey = createAnalyticsQueryKey(queryAccountId, days);
+  const resourceMatchesActiveQuery =
+    Boolean(activeAnalyticsQueryKey) && analyticsResource.queryKey === activeAnalyticsQueryKey;
+  const hasLiveDashboard =
+    resourceMatchesActiveQuery && Boolean(analyticsResource.data);
+  const dashboard = hasLiveDashboard ? analyticsResource.data : sampleDashboard;
+  const loading =
+    Boolean(activeAnalyticsQueryKey) &&
+    (!resourceMatchesActiveQuery || analyticsResource.status === 'loading' || analyticsResource.isRefreshing);
+  const queryResourceError = resourceMatchesActiveQuery ? analyticsResource.error : null;
+  const queryError = queryResourceError?.message || '';
+  const teammateAccessIssue = Array.isArray(dashboard.accessIssues)
+    ? dashboard.accessIssues.find((issue) => issue?.slice === 'teammates') ?? null
+    : null;
+  const selectableMatchesById = useMemo(() => {
     const merged = [...(dashboard.recentMatches ?? []), ...(dashboard.windowMatches ?? [])];
     const byMatchId = new Map();
     merged.forEach((match) => {
@@ -650,8 +501,9 @@ function App() {
         byMatchId.set(match.matchId, match);
       }
     });
-    return Array.from(byMatchId.values());
+    return byMatchId;
   }, [dashboard.recentMatches, dashboard.windowMatches]);
+  const selectableMatches = useMemo(() => Array.from(selectableMatchesById.values()), [selectableMatchesById]);
   const selectedRecentMatch = useMemo(
     () => selectableMatches.find((item) => item.matchId === selectedRecentMatchId) ?? null,
     [selectableMatches, selectedRecentMatchId]
@@ -662,34 +514,40 @@ function App() {
   }, [lang]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
+    const retryAfter = Number(queryResourceError?.retryAfter);
+    if (!queryError || !Number.isFinite(retryAfter) || retryAfter <= 0) {
+      setRetryDelaySeconds(0);
+      return undefined;
     }
 
-    try {
-      window.localStorage.setItem(
-        ACCOUNT_STORAGE_KEY,
-        JSON.stringify({
-          savedAccounts,
-          activeAccount: {
-            rawId: queryRawId,
-            accountId: queryAccountId,
-          },
-          days,
-        })
-      );
-    } catch {
-      // Ignore localStorage write failures (for example, privacy mode restrictions).
-    }
+    setRetryDelaySeconds(Math.ceil(retryAfter));
+    const timer = window.setInterval(() => {
+      setRetryDelaySeconds((current) => {
+        if (current <= 1) {
+          window.clearInterval(timer);
+          return 0;
+        }
+        return current - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [queryError, queryResourceError?.retryAfter]);
+
+  useEffect(() => {
+    saveAccountSession({
+      savedAccounts,
+      queryRawId,
+      queryAccountId,
+      days,
+    });
   }, [savedAccounts, queryAccountId, queryRawId, days]);
 
   useEffect(() => {
-    if (dashboard.source === 'mock') {
-      setDashboard(createMockDashboard(copy, lang));
+    if (activeTab !== TAB_IDS.allHeroes) {
+      return undefined;
     }
-  }, [copy, dashboard.source, lang]);
 
-  useEffect(() => {
     const controller = new AbortController();
     const client = createOpenDotaClient(lang);
 
@@ -711,57 +569,31 @@ function App() {
     return () => {
       controller.abort();
     };
-  }, [lang]);
+  }, [activeTab, lang]);
 
   useEffect(() => {
-    if (!queryAccountId) {
-      return undefined;
+    const data = analyticsResource.data;
+    if (!data || analyticsResource.queryKey !== `${queryAccountId}:${days}`) {
+      return;
     }
 
-    const controller = new AbortController();
-
-    const load = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const data = await fetchPlayerWindowAnalytics(queryAccountId, days, controller.signal, lang);
-        setDashboard({
-          ...data,
-          source: 'opendota',
-        });
-        setSavedAccounts((prev) =>
-          prev.map((account) =>
-            account.accountId === queryAccountId
-              ? {
-                  ...account,
-                  nickname: data.playerName,
-                  avatar: data.playerAvatar || account.avatar || '',
-                }
-              : account
-          )
-        );
-      } catch (loadError) {
-        if (loadError.name !== 'AbortError') {
-          setError(loadError.message || copy.errors.fetchFailed);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    load();
-
-    return () => {
-      controller.abort();
-    };
-  }, [queryAccountId, days, reloadKey, lang, copy.errors.fetchFailed]);
+    setSavedAccounts((previous) =>
+      previous.map((account) =>
+        account.accountId === queryAccountId
+          ? {
+              ...account,
+              nickname: data.playerName,
+              avatar: data.playerAvatar || account.avatar || '',
+            }
+          : account
+      )
+    );
+  }, [analyticsResource.data, analyticsResource.queryKey, days, queryAccountId]);
 
   useEffect(() => {
     setSelectedRecentMatchId(null);
     setRecentMatchDetail(null);
-    setRecentMatchDetailError('');
+    setRecentMatchDetailError(null);
     setRecentMatchDetailLoading(false);
     setSelectedHeroRowId(null);
     setHeroRowManuallyCollapsed(false);
@@ -777,7 +609,7 @@ function App() {
     if (!exists) {
       setSelectedRecentMatchId(null);
       setRecentMatchDetail(null);
-      setRecentMatchDetailError('');
+      setRecentMatchDetailError(null);
       setRecentMatchDetailLoading(false);
     }
   }, [selectableMatches, selectedRecentMatchId]);
@@ -789,7 +621,7 @@ function App() {
 
     const controller = new AbortController();
     setRecentMatchDetail(null);
-    setRecentMatchDetailError('');
+    setRecentMatchDetailError(null);
     setRecentMatchDetailLoading(true);
 
     const load = async () => {
@@ -807,6 +639,7 @@ function App() {
           heroId: selectedRecentMatch.heroId,
           hero: selectedRecentMatch.hero,
           heroAvatar: selectedRecentMatch.heroAvatar,
+          playerName: dashboard.playerName,
           playerAvatar: dashboard.playerAvatar,
           playerSlot: selectedRecentMatch.playerSlot,
           startTime: selectedRecentMatch.startTime,
@@ -817,8 +650,19 @@ function App() {
           setRecentMatchDetail(detail);
         }
       } catch (loadError) {
-        if (loadError.name !== 'AbortError') {
-          setRecentMatchDetailError(loadError.message || copy.recentMatches?.detail?.loadFailed || copy.errors.fetchFailed);
+        if (!controller.signal.aborted && loadError.name !== 'AbortError') {
+          setRecentMatchDetailError({
+            code: loadError?.code || 'MATCH_DETAIL_FAILED',
+            status: Number.isFinite(loadError?.status) ? loadError.status : null,
+            retryable: loadError?.retryable !== false,
+            retryAfter: Number.isFinite(loadError?.retryAfter)
+              ? loadError.retryAfter
+              : null,
+            message:
+              loadError?.message ||
+              copy.recentMatches?.detail?.loadFailed ||
+              copy.errors.fetchFailed,
+          });
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -835,11 +679,13 @@ function App() {
   }, [
     selectedRecentMatch,
     dashboard.source,
+    dashboard.playerName,
     dashboard.playerAvatar,
     queryAccountId,
     lang,
     copy.recentMatches?.detail?.loadFailed,
     copy.errors.fetchFailed,
+    recentMatchDetailReloadKey,
   ]);
 
   const availableAttributes = useMemo(() => {
@@ -909,19 +755,57 @@ function App() {
     return grouped;
   }, [dashboard.windowMatches]);
   const recentMatchSummary = useMemo(() => summarizeRecentMatches(paginatedRecentMatches), [paginatedRecentMatches]);
+  const coachInsights = useMemo(
+    () =>
+      buildCoachInsights({
+        heroPerformance: dashboard.heroPerformance,
+        windowMatches: dashboard.windowMatches,
+      }),
+    [dashboard.heroPerformance, dashboard.windowMatches]
+  );
+  const overviewFeaturedHeroes = useMemo(
+    () =>
+      (dashboard.heroPerformance ?? [])
+        .slice()
+        .sort((left, right) => {
+          const matchDelta = (right.matches ?? 0) - (left.matches ?? 0);
+          if (matchDelta !== 0) {
+            return matchDelta;
+          }
+          return (resolveHeroWinRate(right) ?? -1) - (resolveHeroWinRate(left) ?? -1);
+        })
+        .slice(0, 5),
+    [dashboard.heroPerformance]
+  );
+  const overviewHeroInsight =
+    coachInsights.find((insight) => insight.id === 'heroFocus') ?? coachInsights[0] ?? null;
+  const overviewRecentMatches = useMemo(
+    () => (dashboard.windowMatches ?? []).slice(0, 5),
+    [dashboard.windowMatches]
+  );
   const overviewExtremeMatches = useMemo(() => dashboard.windowMatches ?? [], [dashboard.windowMatches]);
   const overviewExtremes = useMemo(() => summarizeOverviewExtremes(overviewExtremeMatches), [overviewExtremeMatches]);
   const overviewAchievementTotals = useMemo(() => {
     if (dashboard.achievementTotals) {
+      const normalizeCoverage = (coverage) => ({
+        availableMatches: Math.max(0, Math.trunc(toFiniteOrNull(coverage?.availableMatches) ?? 0)),
+        totalMatches: Math.max(0, Math.trunc(toFiniteOrNull(coverage?.totalMatches) ?? 0)),
+        ratio: Math.max(0, Math.min(1, toFiniteOrNull(coverage?.ratio) ?? 0)),
+        complete: coverage?.complete === true,
+      });
       return {
         rampage: Math.max(0, Math.trunc(toFiniteOrNull(dashboard.achievementTotals.rampage) ?? 0)),
         godlike: Math.max(0, Math.trunc(toFiniteOrNull(dashboard.achievementTotals.godlike) ?? 0)),
         rampageDataAvailable: dashboard.achievementTotals.rampageDataAvailable === true,
         godlikeDataAvailable: dashboard.achievementTotals.godlikeDataAvailable === true,
+        rampagePartialDataAvailable: dashboard.achievementTotals.rampagePartialDataAvailable === true,
+        godlikePartialDataAvailable: dashboard.achievementTotals.godlikePartialDataAvailable === true,
+        rampageCoverage: normalizeCoverage(dashboard.achievementTotals.rampageCoverage),
+        godlikeCoverage: normalizeCoverage(dashboard.achievementTotals.godlikeCoverage),
       };
     }
 
-    return (dashboard.windowMatches ?? []).reduce(
+    const fallbackTotals = (dashboard.windowMatches ?? []).reduce(
       (acc, match) => {
         const rampageCount = toFiniteOrNull(match?.rampageCount);
         const godlikeCount = toFiniteOrNull(match?.godlikeCount);
@@ -929,148 +813,41 @@ function App() {
         const godlikeDataAvailable = match?.godlikeDataAvailable === true || (godlikeCount != null && godlikeCount > 0);
         acc.rampage += rampageCount == null ? (match?.hasRampage ? 1 : 0) : Math.max(0, Math.trunc(rampageCount));
         acc.godlike += godlikeCount == null ? (match?.hasGodlike ? 1 : 0) : Math.max(0, Math.trunc(godlikeCount));
-        acc.rampageDataAvailable = acc.rampageDataAvailable || rampageDataAvailable;
-        acc.godlikeDataAvailable = acc.godlikeDataAvailable || godlikeDataAvailable;
+        acc.rampageAvailableMatches += rampageDataAvailable ? 1 : 0;
+        acc.godlikeAvailableMatches += godlikeDataAvailable ? 1 : 0;
         return acc;
       },
-      { rampage: 0, godlike: 0, rampageDataAvailable: false, godlikeDataAvailable: false }
+      { rampage: 0, godlike: 0, rampageAvailableMatches: 0, godlikeAvailableMatches: 0 }
     );
+    const totalMatches = dashboard.windowMatches?.length ?? 0;
+    const makeCoverage = (availableMatches) => ({
+      availableMatches,
+      totalMatches,
+      ratio: totalMatches > 0 ? availableMatches / totalMatches : 1,
+      complete: availableMatches === totalMatches,
+    });
+    const rampageCoverage = makeCoverage(fallbackTotals.rampageAvailableMatches);
+    const godlikeCoverage = makeCoverage(fallbackTotals.godlikeAvailableMatches);
+    return {
+      rampage: fallbackTotals.rampage,
+      godlike: fallbackTotals.godlike,
+      rampageDataAvailable: rampageCoverage.complete,
+      godlikeDataAvailable: godlikeCoverage.complete,
+      rampagePartialDataAvailable: rampageCoverage.availableMatches > 0 && !rampageCoverage.complete,
+      godlikePartialDataAvailable: godlikeCoverage.availableMatches > 0 && !godlikeCoverage.complete,
+      rampageCoverage,
+      godlikeCoverage,
+    };
   }, [dashboard.achievementTotals, dashboard.windowMatches]);
   const overviewGameModeDistribution = useMemo(
     () => buildGameModeDistribution(dashboard.windowMatches, copy.overview.modeDistribution.unknownMode),
     [dashboard.windowMatches, copy.overview.modeDistribution.unknownMode]
   );
   const sideWinRates = useMemo(() => summarizeSideWinRates(dashboard.windowMatches ?? []), [dashboard.windowMatches]);
-  const catalogLocale = lang === 'en' ? 'en' : 'zh';
-  const heroCategories = useMemo(
-    () => [
-      { id: 'all', label: copy.catalog.categories.all },
-      { id: 'strength', label: copy.catalog.categories.heroStrength },
-      { id: 'agility', label: copy.catalog.categories.heroAgility },
-      { id: 'intelligence', label: copy.catalog.categories.heroIntelligence },
-      { id: 'universal', label: copy.catalog.categories.heroUniversal },
-    ],
-    [copy.catalog.categories]
-  );
-  const itemCategories = useMemo(
-    () => [
-      { id: 'all', label: copy.catalog.categories.all },
-      { id: 'consumable', label: copy.catalog.categories.itemConsumable },
-      { id: 'attribute', label: copy.catalog.categories.itemAttribute },
-      { id: 'equipment', label: copy.catalog.categories.itemEquipment },
-      { id: 'support', label: copy.catalog.categories.itemSupport },
-      { id: 'magic', label: copy.catalog.categories.itemMagic },
-      { id: 'armor', label: copy.catalog.categories.itemArmor },
-      { id: 'weapon', label: copy.catalog.categories.itemWeapon },
-    ],
-    [copy.catalog.categories]
-  );
-  const allHeroesCatalog = useMemo(() => {
-    return heroCatalog
-      .slice()
-      .sort((a, b) => (a.id ?? 0) - (b.id ?? 0))
-      .map((hero) => {
-        const heroMeta = heroMetaById.get(hero.id);
-        const primaryAttr = normalizePrimaryAttr(hero.primaryAttr ?? hero.primary_attr ?? heroMeta?.primaryAttr);
-        const label = catalogLocale === 'en' ? hero.nameEn ?? hero.nameZh ?? hero.key : hero.nameZh ?? hero.nameEn ?? hero.key;
-        const category = resolveHeroCategory(primaryAttr);
-        const categoryLabel = heroCategories.find((item) => item.id === category)?.label ?? copy.catalog.categories.all;
-        const detailFallback = copy.catalog.heroDetails.emptyValue;
-        const nameZh = hero.nameZh ?? heroMeta?.nameZh ?? '';
-        const nameEn = hero.nameEn ?? heroMeta?.nameEn ?? '';
-        const baseStr = heroMeta?.baseStr ?? hero.baseStr ?? hero.base_str;
-        const strGain = heroMeta?.strGain ?? hero.strGain ?? hero.str_gain;
-        const baseAgi = heroMeta?.baseAgi ?? hero.baseAgi ?? hero.base_agi;
-        const agiGain = heroMeta?.agiGain ?? hero.agiGain ?? hero.agi_gain;
-        const baseInt = heroMeta?.baseInt ?? hero.baseInt ?? hero.base_int;
-        const intGain = heroMeta?.intGain ?? hero.intGain ?? hero.int_gain;
-        const attackType = heroMeta?.attackType ?? hero.attackType ?? hero.attack_type ?? '';
-        const attackRange = heroMeta?.attackRange ?? hero.attackRange ?? hero.attack_range;
-        const moveSpeed = heroMeta?.moveSpeed ?? hero.moveSpeed ?? hero.move_speed;
-        const roles = heroMeta?.roles ?? hero.roles ?? [];
-        const detailRows = [
-          { key: 'nameZh', label: copy.catalog.heroDetails.nameZh, value: nameZh || detailFallback },
-          { key: 'nameEn', label: copy.catalog.heroDetails.nameEn, value: nameEn || detailFallback },
-          { key: 'attribute', label: copy.catalog.heroDetails.attribute, value: categoryLabel || detailFallback },
-          {
-            key: 'strength',
-            tone: 'strength',
-            label: copy.catalog.heroDetails.strength,
-            value: formatGrowthValue(baseStr, strGain, detailFallback),
-          },
-          {
-            key: 'agility',
-            tone: 'agility',
-            label: copy.catalog.heroDetails.agility,
-            value: formatGrowthValue(baseAgi, agiGain, detailFallback),
-          },
-          {
-            key: 'intelligence',
-            tone: 'intelligence',
-            label: copy.catalog.heroDetails.intelligence,
-            value: formatGrowthValue(baseInt, intGain, detailFallback),
-          },
-          { key: 'attackType', label: copy.catalog.heroDetails.attackType, value: attackType || detailFallback },
-          { key: 'attackRange', label: copy.catalog.heroDetails.attackRange, value: formatNumberValue(attackRange, detailFallback) },
-          { key: 'moveSpeed', label: copy.catalog.heroDetails.moveSpeed, value: formatNumberValue(moveSpeed, detailFallback) },
-          { key: 'roles', label: copy.catalog.heroDetails.roles, value: formatRolesValue(roles, detailFallback) },
-        ];
-        const fallback = String(label ?? '')
-          .replace(/\s+/g, '')
-          .slice(0, 2)
-          .toUpperCase();
-        return {
-          key: `hero-${hero.id}-${hero.key}`,
-          label: label || `Hero #${hero.id}`,
-          nameZh,
-          nameEn,
-          attributeLabel: categoryLabel,
-          meta: `#${hero.id} · ${hero.key}`,
-          description: copy.catalog.heroDescription({ attribute: categoryLabel }),
-          detailRows,
-          category,
-          categoryLabel,
-          icon: hero.avatar ?? '',
-          fallback: fallback || 'H',
-        };
-      });
-  }, [catalogLocale, copy.catalog, heroCategories, heroMetaById]);
-  const allItemsCatalog = useMemo(() => {
-    const unknownIdLabel = copy.catalog.unknownId;
-    return itemCatalog
-      .slice()
-      .sort((a, b) => {
-        const idA = Number.isFinite(a.id) ? a.id : Number.MAX_SAFE_INTEGER;
-        const idB = Number.isFinite(b.id) ? b.id : Number.MAX_SAFE_INTEGER;
-        if (idA !== idB) {
-          return idA - idB;
-        }
-        return String(a.key ?? '').localeCompare(String(b.key ?? ''), catalogLocale);
-      })
-      .map((item) => {
-        const label = catalogLocale === 'en' ? item.nameEn ?? item.nameZh ?? item.key : item.nameZh ?? item.nameEn ?? item.key;
-        const category = resolveItemCategory(item.key);
-        const fallback = String(label ?? '')
-          .replace(/\s+/g, '')
-          .slice(0, 2)
-          .toUpperCase();
-        const itemId = Number.isFinite(item.id) ? `#${item.id}` : unknownIdLabel;
-        return {
-          key: `item-${item.id ?? 'na'}-${item.key}`,
-          label: label || item.key,
-          meta: `${itemId} · ${item.key}`,
-          description: copy.catalog.itemDescription({ id: item.id, key: item.key }),
-          category,
-          categoryLabel: itemCategories.find((entry) => entry.id === category)?.label ?? copy.catalog.categories.itemEquipment,
-          icon: item.icon ?? '',
-          fallback: fallback || 'I',
-        };
-      });
-  }, [catalogLocale, copy.catalog, itemCategories]);
-
   const switchToAccount = (account, forceRefresh = false) => {
     setInputAccountId(account.rawId);
-    setError('');
+    setInputError('');
+    setShowSample(false);
 
     if (account.accountId === queryAccountId && account.rawId === queryRawId) {
       if (forceRefresh) {
@@ -1087,23 +864,23 @@ function App() {
     event.preventDefault();
     const normalizedId = inputAccountId.trim();
 
-    const parseResult = parseSteam32(normalizedId, copy);
+    const parseResult = parseSteam32(normalizedId, copy.errors);
     if (!parseResult.valid) {
-      setError(parseResult.message);
+      setInputError(parseResult.message);
       return;
     }
 
     const { accountId } = parseResult;
     const nextAccount = {
-      rawId: normalizedId,
+      rawId: accountId,
       accountId,
-      nickname: normalizedId,
+      nickname: accountId,
       avatar: '',
     };
 
     const hasSaved = savedAccounts.some((item) => isSameAccount(item, nextAccount));
     if (!hasSaved && savedAccounts.length >= MAX_SAVED_ACCOUNTS) {
-      setError(copy.errors.accountLimit(MAX_SAVED_ACCOUNTS));
+      setInputError(copy.errors.accountLimit(MAX_SAVED_ACCOUNTS));
       return;
     }
 
@@ -1111,7 +888,7 @@ function App() {
       setSavedAccounts((prev) => [nextAccount, ...prev].slice(0, MAX_SAVED_ACCOUNTS));
     }
 
-    setError('');
+    setInputError('');
     switchToAccount(nextAccount, true);
     setIsAccountModalOpen(false);
   };
@@ -1122,10 +899,6 @@ function App() {
   };
 
   const handleRemoveSavedAccount = (account) => {
-    if (savedAccounts.length <= 1) {
-      return;
-    }
-
     const next = savedAccounts.filter((item) => !isSameAccount(item, account));
     if (next.length === savedAccounts.length) {
       return;
@@ -1134,7 +907,15 @@ function App() {
     setSavedAccounts(next);
     const activeAccount = { rawId: queryRawId, accountId: queryAccountId };
     if (isSameAccount(account, activeAccount)) {
-      switchToAccount(next[0], false);
+      if (next.length > 0) {
+        switchToAccount(next[0], false);
+      } else {
+        setInputAccountId('');
+        setQueryAccountId('');
+        setQueryRawId('');
+        setInputError('');
+        setShowSample(true);
+      }
     }
   };
 
@@ -1158,6 +939,8 @@ function App() {
         header.hero,
         header.attribute,
         header.matches,
+        header.knownOutcomes,
+        header.unknownOutcomes,
         header.winRate,
         header.avgKda,
         header.avgGpm,
@@ -1168,11 +951,25 @@ function App() {
         hero.hero,
         hero.attribute,
         hero.matches,
-        `${((hero.wins / Math.max(1, hero.matches)) * 100).toFixed(1)}%`,
-        hero.avgKda,
+        Number.isFinite(hero.outcomeMatches)
+          ? hero.outcomeMatches
+          : hero.matches,
+        Number.isFinite(hero.unknownOutcomes)
+          ? hero.unknownOutcomes
+          : Math.max(
+              0,
+              hero.matches -
+                (Number.isFinite(hero.outcomeMatches)
+                  ? hero.outcomeMatches
+                  : hero.matches)
+            ),
+        resolveHeroWinRate(hero) === null
+          ? '-'
+          : `${resolveHeroWinRate(hero).toFixed(1)}%`,
+        Number.isFinite(hero.avgKda) ? hero.avgKda : '-',
         Number.isFinite(hero.avgGpm) ? hero.avgGpm : '-',
         Number.isFinite(hero.avgXpm) ? hero.avgXpm : '-',
-        hero.impact,
+        Number.isFinite(hero.impact) ? hero.impact : '-',
       ]),
     ];
 
@@ -1212,8 +1009,19 @@ function App() {
   const handleCloseRecentMatchDetail = () => {
     setSelectedRecentMatchId(null);
     setRecentMatchDetail(null);
-    setRecentMatchDetailError('');
+    setRecentMatchDetailError(null);
     setRecentMatchDetailLoading(false);
+  };
+
+  const handleRetryRecentMatchDetail = () => {
+    if (recentMatchDetailError?.retryable === false) {
+      return;
+    }
+    if (selectedRecentMatchId) {
+      invalidateOpenDotaCache({ matchId: selectedRecentMatchId });
+    }
+    setRecentMatchDetailError(null);
+    setRecentMatchDetailReloadKey((value) => value + 1);
   };
 
   useEffect(() => {
@@ -1223,49 +1031,167 @@ function App() {
     if (selectedRecentMatchId) {
       setSelectedRecentMatchId(null);
       setRecentMatchDetail(null);
-      setRecentMatchDetailError('');
+      setRecentMatchDetailError(null);
       setRecentMatchDetailLoading(false);
     }
   }, [activeTab, selectedRecentMatchId]);
 
   const tabItems = [
+    { id: TAB_IDS.overview, label: copy.tabs.overview },
     { id: TAB_IDS.recentMatches, label: copy.tabs.recentMatches },
     { id: TAB_IDS.heroes, label: copy.tabs.heroes },
     { id: TAB_IDS.teammates, label: copy.tabs.teammates },
     { id: TAB_IDS.trend, label: copy.tabs.trend },
-    { id: TAB_IDS.overview, label: copy.tabs.overview },
-    { id: TAB_IDS.allHeroes, label: copy.tabs.allHeroes, rightGroup: true },
+    { id: TAB_IDS.allHeroes, label: copy.tabs.allHeroes },
     { id: TAB_IDS.allItems, label: copy.tabs.allItems },
   ];
+  const tabItemById = new Map(tabItems.map((item) => [item.id, item]));
+  const navigationCopy = copy.navigation ?? {
+    ariaLabel: copy.tabs.ariaLabel,
+    home: copy.tabs.overview,
+    matches: copy.tabs.recentMatches,
+    improve: copy.tabs.heroes,
+    library: copy.catalog.ariaLabel,
+  };
+  const navGroups = NAV_GROUPS.map((group) => ({
+    ...group,
+    label: navigationCopy[group.id],
+  }));
+  const activeNavGroup = navGroups.find((group) => group.tabs.includes(activeTab)) ?? navGroups[0];
+  const activeGroupTabs = activeNavGroup.tabs.map((tabId) => tabItemById.get(tabId)).filter(Boolean);
+  const visibleSubTabs = activeGroupTabs.length > 1 ? activeGroupTabs : [];
+  const handleTabKeyDown = (event, index, items) => {
+    let nextIndex = null;
+    if (event.key === 'ArrowRight') {
+      nextIndex = (index + 1) % items.length;
+    } else if (event.key === 'ArrowLeft') {
+      nextIndex = (index - 1 + items.length) % items.length;
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = items.length - 1;
+    }
 
-  const statusLine = error
-    ? error
-    : queryAccountId
-      ? dashboard.source === 'opendota' && dashboard.totalMatches === 0
-        ? copy.status.noRecentMatches({
-            playerName: dashboard.playerName,
-            days,
-            latestMatchDate: formatMatchDate(dashboard.latestMatchStartTime, lang),
-          })
-        : copy.status.steam({
-            playerName: dashboard.playerName,
-            rawId: queryRawId,
-            days,
-            totalMatches: dashboard.totalMatches,
-          })
-      : copy.status.mock;
+    if (nextIndex === null) {
+      return;
+    }
+
+    event.preventDefault();
+    const nextTab = items[nextIndex];
+    setActiveTab(nextTab.id);
+    tabRefs.current.get(nextTab.id)?.focus();
+  };
+  const handleNavGroupSelect = (group) => {
+    const currentTabInGroup = group.tabs.includes(activeTab);
+    if (!currentTabInGroup) {
+      setActiveTab(group.tabs[0]);
+    }
+  };
+  const panelLabelId = (tabId) => {
+    const group = navGroups.find((item) => item.tabs.includes(tabId));
+    return group?.tabs.length === 1 ? `nav-${group.id}` : `tab-${tabId}`;
+  };
+
+  const isSampleDashboard = !hasLiveDashboard && showSample;
+  const dashboardVisible = hasLiveDashboard || isSampleDashboard;
+  const statusLine = queryError
+    ? queryError
+    : loading && !hasLiveDashboard
+      ? copy.query.loading
+      : isSampleDashboard
+        ? copy.status.mock
+        : queryAccountId && hasLiveDashboard
+          ? dashboard.totalMatches === 0
+            ? copy.status.noRecentMatches({
+                playerName: dashboard.playerName,
+                days,
+                latestMatchDate: formatMatchDate(dashboard.latestMatchStartTime, lang),
+              })
+            : copy.status.steam({
+                playerName: dashboard.playerName,
+                rawId: queryRawId,
+                days,
+                totalMatches: dashboard.totalMatches,
+              })
+          : copy.query.loading;
+  const resourceStatusCopy = copy.resourceStatus ?? {};
+  const provenanceCopy = copy.provenance ?? {};
+  const retryLabel = resourceStatusCopy.retry ?? copy.query.submit;
+  const viewSampleLabel = resourceStatusCopy.viewSample ?? copy.misc.samplePlayerName;
+  const retryIsDisallowed = queryResourceError?.retryable === false;
+  const retryIsWaiting = !retryIsDisallowed && retryDelaySeconds > 0;
+  const recoveryLabel = retryIsDisallowed
+    ? resourceStatusCopy.changePlayer ?? copy.query.openAccountModal
+    : retryIsWaiting && typeof resourceStatusCopy.retryAfter === 'function'
+      ? resourceStatusCopy.retryAfter(retryDelaySeconds)
+      : retryLabel;
+  const handleQueryRecovery = () => {
+    if (!queryAccountId || retryIsDisallowed) {
+      setIsAccountModalOpen(true);
+      return;
+    }
+    if (retryIsWaiting) {
+      return;
+    }
+    setShowSample(false);
+    setReloadKey((value) => value + 1);
+  };
+  const handlePrimaryPlayerAction = () => {
+    if (queryError) {
+      handleQueryRecovery();
+      return;
+    }
+    if (isSampleDashboard && queryAccountId) {
+      setShowSample(false);
+      setReloadKey((value) => value + 1);
+      return;
+    }
+    setIsAccountModalOpen(true);
+  };
+  const primaryPlayerActionLabel = queryError
+    ? recoveryLabel
+    : isSampleDashboard && queryAccountId
+      ? retryLabel
+      : copy.query.submit;
+  const liveDataAsOf = dashboard.asOf
+    ? new Intl.DateTimeFormat(lang === 'en' ? 'en-US' : 'zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(dashboard.asOf))
+    : '';
+  const liveDataCoverage = dashboard.dataCoverage
+    ? {
+        includedMatches: dashboard.dataCoverage.includedMatches ?? dashboard.totalMatches ?? 0,
+        retrievedMatches: dashboard.dataCoverage.retrievedMatches ?? dashboard.totalMatches ?? 0,
+      }
+    : null;
 
   const worstHero = dashboard.metrics.worstHero;
   const mostPlayedHero = dashboard.metrics.mostPlayedHero;
   const signatureHero = dashboard.metrics.signatureHero;
   const antiSignatureHero = dashboard.metrics.antiSignatureHero;
+  const emptyValue = copy.recentMatches.emptyValue;
   const avgGpm = Number.isFinite(dashboard.metrics.avgGpm) ? dashboard.metrics.avgGpm : copy.recentMatches.emptyValue;
   const avgXpm = Number.isFinite(dashboard.metrics.avgXpm) ? dashboard.metrics.avgXpm : copy.recentMatches.emptyValue;
+  const resolvedWorstHeroWinRate = resolveHeroWinRate(worstHero);
   const worstHeroWinRate =
-    Number.isFinite(worstHero?.wins) && Number.isFinite(worstHero?.matches) && worstHero.matches > 0
-      ? ((worstHero.wins / worstHero.matches) * 100).toFixed(1)
-      : '0.0';
-  const emptyValue = copy.recentMatches.emptyValue;
+    resolvedWorstHeroWinRate === null ? null : resolvedWorstHeroWinRate.toFixed(1);
+  const formatAchievementValue = (value, complete, partial) =>
+    complete ? value : partial ? `≥ ${value}` : emptyValue;
+  const formatAchievementSubtext = (coverage, defaultText) => {
+    if (coverage?.complete) {
+      return defaultText;
+    }
+    if (typeof copy.cards.achievementCoverageSubtext === 'function') {
+      return copy.cards.achievementCoverageSubtext({
+        availableMatches: coverage?.availableMatches ?? 0,
+        totalMatches: coverage?.totalMatches ?? 0,
+      });
+    }
+    return `${coverage?.availableMatches ?? 0} / ${coverage?.totalMatches ?? 0}`;
+  };
   const highestDamageMatch = overviewExtremes.highestDamageMatch;
   const mostKillsMatch = overviewExtremes.mostKillsMatch;
   const mostDeathsMatch = overviewExtremes.mostDeathsMatch;
@@ -1278,16 +1204,6 @@ function App() {
   const activeAccountNickname = activeAccount?.nickname || dashboard.playerName || queryRawId || copy.query.unknownNickname;
   const activeAccountAvatar = activeAccount?.avatar || dashboard.playerAvatar || '';
   const activeAccountAvatarFallback = getAvatarInitial(activeAccountNickname);
-  const overviewInsights = [
-    copy.overview.insightRecentMatches({
-      totalMatches: dashboard.metrics.totalMatches,
-      days,
-    }),
-    copy.overview.insightWinRate({
-      overallWinRate: dashboard.metrics.overallWinRate,
-      totalMatches: dashboard.metrics.totalMatches,
-    }),
-  ];
   const kdaTrendCopy = {
     ...copy.trend,
     title: copy.trend.kdaTitle,
@@ -1315,195 +1231,370 @@ function App() {
   const worstWinRateTeammate = teammateSummary.worstWinRateOver20 ?? null;
   const radiantWinRateText = sideWinRates.radiant.winRate === null ? emptyValue : `${sideWinRates.radiant.winRate}%`;
   const direWinRateText = sideWinRates.dire.winRate === null ? emptyValue : `${sideWinRates.dire.winRate}%`;
+  const overallWinRateText =
+    dashboard.metrics.overallWinRate == null
+      ? emptyValue
+      : `${dashboard.metrics.overallWinRate}%`;
 
   return (
     <div className="app-shell">
-      <header className="hero-header">
-        <div className="hero-header__content">
-          <div className="hero-top">
-            <p className="eyebrow">{copy.app.eyebrow}</p>
-            <div className="hero-top-actions">
-              <div className="language-switch" role="group" aria-label={copy.app.languageLabel}>
-                <button
-                  type="button"
-                  className={lang === 'zh' ? 'is-active' : ''}
-                  onClick={() => setLang('zh')}
-                  disabled={loading}
-                >
-                  {copy.app.languages.zh}
-                </button>
-                <button
-                  type="button"
-                  className={lang === 'en' ? 'is-active' : ''}
-                  onClick={() => setLang('en')}
-                  disabled={loading}
-                >
-                  {copy.app.languages.en}
-                </button>
-              </div>
-              <button
-                type="button"
-                className="account-summary-btn"
-                onClick={() => setIsAccountModalOpen(true)}
-                aria-label={copy.query.openAccountModal}
-              >
-                <span className="account-summary-main">
-                  {activeAccountAvatar ? (
-                    <img src={activeAccountAvatar} alt={activeAccountNickname} className="account-avatar account-avatar--summary" loading="lazy" />
-                  ) : (
-                    <span className="account-avatar account-avatar--summary is-fallback">{activeAccountAvatarFallback}</span>
-                  )}
-                  <span className="account-summary-name">{activeAccountNickname}</span>
-                </span>
-              </button>
-            </div>
+      <header className="broadcast-header">
+        <div className="broadcast-header__top">
+          <div className="brand-lockup" aria-label={copy.app.eyebrow}>
+            <img className="brand-mark" src="/favicon.svg" alt="" width="34" height="34" />
+            <span className="brand-wordmark">
+              DotaLens <span className="brand-accent">Analytics</span>
+            </span>
           </div>
 
-          <h1>{copy.app.title}</h1>
-          <p className="description">{copy.app.description}</p>
-          <p className={`status-line ${error ? 'is-error' : ''}`}>{statusLine}</p>
+          <div className="hero-top-actions">
+            <div className="language-switch" role="group" aria-label={copy.app.languageLabel}>
+              <button
+                type="button"
+                className={lang === 'zh' ? 'is-active' : ''}
+                onClick={() => setLang('zh')}
+                aria-pressed={lang === 'zh'}
+              >
+                {copy.app.languages.zh}
+              </button>
+              <button
+                type="button"
+                className={lang === 'en' ? 'is-active' : ''}
+                onClick={() => setLang('en')}
+                aria-pressed={lang === 'en'}
+              >
+                {copy.app.languages.en}
+              </button>
+            </div>
+            <button
+              type="button"
+              className="account-summary-btn"
+              onClick={() => setIsAccountModalOpen(true)}
+              aria-label={copy.query.openAccountModal}
+            >
+              <span className="account-summary-main">
+                {activeAccountAvatar ? (
+                  <img src={activeAccountAvatar} alt={activeAccountNickname} className="account-avatar account-avatar--summary" loading="lazy" />
+                ) : (
+                  <span className="account-avatar account-avatar--summary is-fallback">{activeAccountAvatarFallback}</span>
+                )}
+                <span className="account-summary-name">{activeAccountNickname}</span>
+              </span>
+            </button>
+          </div>
         </div>
+
+        {dashboardVisible ? (
+          <nav className="broadcast-nav" aria-label={navigationCopy.ariaLabel ?? copy.tabs.ariaLabel}>
+            <div className="broadcast-nav__row">
+              {navGroups.map((group) => {
+                const isActive = group.id === activeNavGroup.id;
+                const controlledTabId = isActive && group.tabs.includes(activeTab) ? activeTab : group.tabs[0];
+                return (
+                  <button
+                    key={group.id}
+                    id={`nav-${group.id}`}
+                    type="button"
+                    className={`broadcast-nav__button ${isActive ? 'is-active' : ''}`}
+                    aria-current={isActive ? 'page' : undefined}
+                    aria-controls={`panel-${controlledTabId}`}
+                    onClick={() => handleNavGroupSelect(group)}
+                  >
+                    {group.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {visibleSubTabs.length > 0 ? (
+              <div className="broadcast-subnav" role="tablist" aria-label={navigationCopy.sectionAriaLabel ?? copy.tabs.ariaLabel}>
+                {visibleSubTabs.map((item, index) => (
+                  <button
+                    key={item.id}
+                    ref={(node) => {
+                      if (node) {
+                        tabRefs.current.set(item.id, node);
+                      } else {
+                        tabRefs.current.delete(item.id);
+                      }
+                    }}
+                    id={`tab-${item.id}`}
+                    role="tab"
+                    type="button"
+                    className={activeTab === item.id ? 'is-active' : ''}
+                    aria-selected={activeTab === item.id}
+                    aria-controls={`panel-${item.id}`}
+                    tabIndex={activeTab === item.id ? 0 : -1}
+                    onClick={() => setActiveTab(item.id)}
+                    onKeyDown={(event) => handleTabKeyDown(event, index, visibleSubTabs)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </nav>
+        ) : null}
       </header>
 
-      {isAccountModalOpen ? (
-        <div className="account-modal-backdrop" onClick={() => setIsAccountModalOpen(false)} role="presentation">
-          <section className="query-panel account-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="account-modal-header">
-              <p className="account-panel-title">{copy.query.accountModalTitle}</p>
+      <AccountModal
+        open={isAccountModalOpen}
+        copy={copy.query}
+        inputAccountId={inputAccountId}
+        onInputChange={(value) => {
+          setInputAccountId(value);
+          if (inputError) {
+            setInputError('');
+          }
+        }}
+        onSubmit={handleSubmit}
+        loading={loading}
+        inputError={inputError}
+        savedAccounts={savedAccounts}
+        activeAccountId={queryAccountId}
+        activeRawId={queryRawId}
+        maxSavedAccounts={MAX_SAVED_ACCOUNTS}
+        onSwitchAccount={handleSwitchAccount}
+        onRemoveAccount={handleRemoveSavedAccount}
+        days={days}
+        onDaysChange={setDays}
+        onClose={() => setIsAccountModalOpen(false)}
+      />
+
+      <main className="dashboard" aria-busy={loading}>
+        <section className="dashboard-hero">
+          <div className="dashboard-hero__copy">
+            <h1>{copy.app.title}</h1>
+            <p className="description">{copy.app.description}</p>
+          </div>
+
+          {dashboardVisible ? (
+            <div className="dashboard-hero__status">
+              <div
+                className={`dashboard-hero__status-copy ${queryError && !isSampleDashboard ? 'is-error' : ''}`}
+                role={queryError && !isSampleDashboard ? 'alert' : 'status'}
+                aria-live="polite"
+              >
+                {isSampleDashboard ? <strong>{resourceStatusCopy.sampleTitle ?? copy.misc.samplePlayerName}</strong> : null}
+                <span>{isSampleDashboard ? copy.status.mock : statusLine}</span>
+              </div>
               <button
                 type="button"
-                className="account-modal-close"
-                onClick={() => setIsAccountModalOpen(false)}
-                aria-label={copy.query.closeAccountModal}
+                className="dashboard-hero__cta"
+                onClick={handlePrimaryPlayerAction}
+                disabled={Boolean(queryError) && retryIsWaiting}
               >
-                ×
+                {primaryPlayerActionLabel}
               </button>
             </div>
-            <form className="query-form" onSubmit={handleSubmit}>
-              <label htmlFor="account-id-input">{copy.query.accountIdLabel}</label>
-              <div className="query-controls">
-                <input
-                  id="account-id-input"
-                  type="text"
-                  inputMode="numeric"
-                  placeholder={copy.query.accountIdPlaceholder}
-                  value={inputAccountId}
-                  onChange={(event) => setInputAccountId(event.target.value)}
-                />
-                <button type="submit" disabled={loading}>
-                  {loading ? copy.query.loading : copy.query.submit}
-                </button>
-              </div>
-              <div className="saved-accounts-head">
-                <span>{copy.query.savedAccounts(savedAccounts.length, MAX_SAVED_ACCOUNTS)}</span>
-                <span>{copy.query.savedAccountsHint}</span>
-              </div>
-              <div className="saved-accounts" role="list" aria-label={copy.query.savedAccountsAriaLabel}>
-                {savedAccounts.map((account) => {
-                  const isActive = account.accountId === queryAccountId && account.rawId === queryRawId;
-                  const accountName = account.nickname || account.rawId;
-                  const accountAvatarFallback = getAvatarInitial(accountName);
-
-                  return (
-                    <div key={`${account.rawId}:${account.accountId}`} className={`saved-account-item ${isActive ? 'is-active' : ''}`}>
-                      <button
-                        type="button"
-                        className="saved-account-btn"
-                        onClick={() => handleSwitchAccount(account)}
-                        disabled={loading}
-                      >
-                        <span className="saved-account-main">
-                          {account.avatar ? (
-                            <img src={account.avatar} alt={accountName} className="account-avatar account-avatar--saved" loading="lazy" />
-                          ) : (
-                            <span className="account-avatar account-avatar--saved is-fallback">{accountAvatarFallback}</span>
-                          )}
-                          <span className="saved-account-text">
-                            <span className="saved-account-name">{accountName}</span>
-                            <span className="saved-account-meta">
-                              {copy.query.steamLabel} · {account.rawId}
-                            </span>
-                          </span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        className="saved-account-remove"
-                        onClick={() => handleRemoveSavedAccount(account)}
-                        disabled={loading || savedAccounts.length <= 1}
-                        aria-label={copy.query.removeSavedAccount}
-                        title={copy.query.removeSavedAccount}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="range-switch" role="group" aria-label={copy.query.rangeAriaLabel}>
-                <button
-                  type="button"
-                  className={days === 30 ? 'is-active' : ''}
-                  onClick={() => setDays(30)}
-                  disabled={loading}
-                >
-                  {copy.query.day30}
-                </button>
-                <button
-                  type="button"
-                  className={days === 365 ? 'is-active' : ''}
-                  onClick={() => setDays(365)}
-                  disabled={loading}
-                >
-                  {copy.query.day365}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
-
-      <main className="dashboard">
-        <section className="tabs-panel">
-          <div className="tabs-row" role="tablist" aria-label={copy.tabs.ariaLabel}>
-            {tabItems.map((item) => (
-              <button
-                key={item.id}
-                id={`tab-${item.id}`}
-                role="tab"
-                type="button"
-                className={`tab-btn ${activeTab === item.id ? 'is-active' : ''} ${item.rightGroup ? 'is-right-group' : ''}`}
-                aria-selected={activeTab === item.id}
-                aria-controls={`panel-${item.id}`}
-                onClick={() => setActiveTab(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+          ) : null}
         </section>
+
+        {!dashboardVisible ? (
+          <section className={`panel resource-state resource-state--${queryError ? 'error' : 'loading'}`} role={queryError ? 'alert' : 'status'}>
+            <h2>{queryError ? resourceStatusCopy.errorTitle ?? copy.errors.fetchFailed : resourceStatusCopy.loadingTitle ?? copy.query.loading}</h2>
+            <p>
+              {queryError
+                ? resourceStatusCopy.errorBody ?? queryError
+                : resourceStatusCopy.loadingBody ?? copy.query.loading}
+            </p>
+            {queryError ? <p className="resource-state__detail">{queryError}</p> : null}
+            {queryError ? (
+              <div className="resource-state__actions">
+                <button
+                  type="button"
+                  onClick={handleQueryRecovery}
+                  disabled={retryIsWaiting}
+                >
+                  {queryAccountId ? recoveryLabel : copy.query.submit}
+                </button>
+                <button type="button" className="secondary-button" onClick={() => setShowSample(true)}>
+                  {viewSampleLabel}
+                </button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {dashboardVisible ? (
+          <>
+            {hasLiveDashboard ? (
+              <section className="data-source-banner data-source-banner--live" role="status">
+                <strong>{provenanceCopy.liveTitle ?? 'OpenDota'}</strong>
+                {liveDataAsOf ? (
+                  <span>
+                    {typeof provenanceCopy.updatedAt === 'function'
+                      ? provenanceCopy.updatedAt(liveDataAsOf)
+                      : liveDataAsOf}
+                  </span>
+                ) : null}
+                {liveDataCoverage ? (
+                  <span>
+                    {typeof provenanceCopy.windowCoverage === 'function'
+                      ? provenanceCopy.windowCoverage(liveDataCoverage)
+                      : `${liveDataCoverage.includedMatches}/${liveDataCoverage.retrievedMatches}`}
+                  </span>
+                ) : null}
+                <span>
+                  {dashboard.dataCoverage?.complete === false
+                    ? provenanceCopy.incomplete ?? resourceStatusCopy.partialTitle
+                    : provenanceCopy.complete ?? ''}
+                </span>
+              </section>
+            ) : null}
+
+            {queryError && hasLiveDashboard ? (
+              <section className="data-source-banner data-source-banner--warning" role="alert">
+                <strong>{resourceStatusCopy.staleTitle ?? copy.errors.fetchFailed}</strong>
+                <span>{queryError}</span>
+                <button
+                  type="button"
+                  onClick={handleQueryRecovery}
+                  disabled={retryIsWaiting}
+                >
+                  {recoveryLabel}
+                </button>
+              </section>
+            ) : null}
+
+            {Array.isArray(dashboard.accessIssues) && dashboard.accessIssues.length > 0 ? (
+              <section className="data-source-banner data-source-banner--warning" role="status">
+                <strong>{resourceStatusCopy.partialTitle ?? copy.errors.fetchFailed}</strong>
+                <ul>
+                  {dashboard.accessIssues.map((issue, index) => (
+                    <li key={`${issue?.slice ?? issue?.resource ?? 'slice'}-${issue?.code ?? index}`}>
+                      {issue?.message ?? issue?.code ?? copy.errors.fetchFailed}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
 
         {activeTab === TAB_IDS.overview ? (
           <section
             id={`panel-${TAB_IDS.overview}`}
-            role="tabpanel"
-            aria-labelledby={`tab-${TAB_IDS.overview}`}
+            role="region"
+            aria-labelledby={panelLabelId(TAB_IDS.overview)}
             className="tab-content"
           >
-            <section className="panel overview-panel">
-              <div className="panel-header">
-                <h2>{copy.overview.title}</h2>
-                <span className="panel-tag">{copy.overview.tag(days)}</span>
+            <section className="overview-scoreboard" aria-label={copy.overview.performanceSnapshotTitle}>
+              <div className="overview-scoreboard__toolbar">
+                <h2 className="sr-only">{copy.overview.performanceSnapshotTitle}</h2>
+                <div className="range-switch overview-range-switch" role="group" aria-label={copy.query.rangeAriaLabel}>
+                  <button
+                    type="button"
+                    className={days === 30 ? 'is-active' : ''}
+                    onClick={() => setDays(30)}
+                    aria-pressed={days === 30}
+                  >
+                    {copy.query.day30}
+                  </button>
+                  <button
+                    type="button"
+                    className={days === 365 ? 'is-active' : ''}
+                    onClick={() => setDays(365)}
+                    aria-pressed={days === 365}
+                  >
+                    {copy.query.day365}
+                  </button>
+                </div>
               </div>
-              <p className="overview-title">{copy.overview.highlightsTitle}</p>
-              <ul className="overview-insights">
-                {overviewInsights.map((text) => (
-                  <li key={text}>{text}</li>
-                ))}
-              </ul>
+
+              <div className="stats-grid overview-scoreboard__grid">
+                <StatCard
+                  label={copy.cards.totalMatches}
+                  value={dashboard.metrics.totalMatches}
+                  subtext={copy.cards.totalMatchesSubtext(days)}
+                  accent="gold"
+                />
+                <StatCard
+                  label={copy.cards.overallWinRate}
+                  value={overallWinRateText}
+                  subtext={copy.cards.overallWinRateSubtext}
+                  accent="teal"
+                />
+                <StatCard
+                  label={copy.cards.sideWinRate}
+                  value={`${radiantWinRateText} / ${direWinRateText}`}
+                  subtext={copy.cards.sideWinRateSubtext({
+                    radiantMatches: sideWinRates.radiant.matches,
+                    direMatches: sideWinRates.dire.matches,
+                  })}
+                  accent="teal"
+                />
+                <StatCard
+                  label={copy.cards.avgKda}
+                  value={dashboard.metrics.avgKda ?? emptyValue}
+                  subtext={copy.cards.avgKdaSubtext}
+                  accent="red"
+                />
+                <StatCard
+                  label={copy.cards.avgGpm}
+                  value={`${avgGpm} / ${avgXpm}`}
+                  subtext={copy.cards.avgGpmSubtext}
+                  accent="blue"
+                />
+                <StatCard
+                  label={copy.cards.mostPlayedHero}
+                  value={mostPlayedHero.hero}
+                  subtext={copy.cards.mostPlayedHeroSubtext({
+                    matches: mostPlayedHero.matches,
+                    outcomeMatches: mostPlayedHero.outcomeMatches,
+                    winRate: mostPlayedHero.winRate,
+                  })}
+                  accent="gold"
+                  showAvatar
+                  avatar={mostPlayedHero.heroAvatar}
+                  avatarAlt={mostPlayedHero.hero}
+                />
+                <StatCard
+                  label={copy.cards.worstHero}
+                  value={worstHero.hero}
+                  subtext={copy.cards.worstHeroSubtext({
+                    matches: worstHero.matches ?? 0,
+                    outcomeMatches: worstHero.outcomeMatches,
+                    winRate: worstHeroWinRate,
+                  })}
+                  accent="red"
+                  showAvatar
+                  avatar={worstHero.heroAvatar}
+                  avatarAlt={worstHero.hero}
+                />
+              </div>
             </section>
 
-            <section className="stats-grid">
+            <section className="overview-main-grid">
+              <OverviewHeroFocus
+                heroes={overviewFeaturedHeroes}
+                insight={overviewHeroInsight}
+                coachCopy={copy.coach}
+                tableCopy={{ ...copy.table, ...copy.overview }}
+                onViewAll={() => setActiveTab(TAB_IDS.heroes)}
+                viewAllLabel={copy.overview.heroFocusCta}
+              />
+              <CoachPanel
+                insights={coachInsights}
+                days={days}
+                copy={copy.coach}
+                lang={lang}
+                matchesById={selectableMatchesById}
+                onSelectMatch={handleOpenRecentMatchDetail}
+              />
+            </section>
+
+            <OverviewRecentMatches
+              matches={overviewRecentMatches}
+              copy={copy.recentMatches}
+              lang={lang}
+              selectedMatchId={selectedRecentMatchId}
+              onSelectMatch={handleOpenRecentMatchDetail}
+              title={copy.overview.recentMatchesTitle}
+            />
+
+            <details className="overview-secondary">
+              <summary>{copy.overview.moreStatsTitle}</summary>
+              <div className="overview-secondary__content">
+            <section className="stats-grid overview-secondary-stats">
               <StatCard
                 label={copy.cards.totalMatches}
                 value={dashboard.metrics.totalMatches}
@@ -1512,7 +1603,7 @@ function App() {
               />
               <StatCard
                 label={copy.cards.overallWinRate}
-                value={`${dashboard.metrics.overallWinRate}%`}
+                value={overallWinRateText}
                 subtext={copy.cards.overallWinRateSubtext}
                 accent="teal"
               />
@@ -1525,7 +1616,12 @@ function App() {
                 })}
                 accent="teal"
               />
-              <StatCard label={copy.cards.avgKda} value={dashboard.metrics.avgKda} subtext={copy.cards.avgKdaSubtext} accent="red" />
+              <StatCard
+                label={copy.cards.avgKda}
+                value={dashboard.metrics.avgKda ?? emptyValue}
+                subtext={copy.cards.avgKdaSubtext}
+                accent="red"
+              />
               <StatCard
                 label={copy.cards.avgGpm}
                 value={`${avgGpm} / ${avgXpm}`}
@@ -1537,6 +1633,7 @@ function App() {
                 value={signatureHero.hero}
                 subtext={copy.cards.signatureHeroSubtext({
                   matches: signatureHero.matches,
+                  outcomeMatches: signatureHero.outcomeMatches,
                   winRate: signatureHero.winRate,
                 })}
                 accent="blue"
@@ -1549,6 +1646,7 @@ function App() {
                 value={mostPlayedHero.hero}
                 subtext={copy.cards.mostPlayedHeroSubtext({
                   matches: mostPlayedHero.matches,
+                  outcomeMatches: mostPlayedHero.outcomeMatches,
                   winRate: mostPlayedHero.winRate,
                 })}
                 accent="teal"
@@ -1559,7 +1657,11 @@ function App() {
               <StatCard
                 label={copy.cards.worstHero}
                 value={worstHero.hero}
-                subtext={copy.cards.worstHeroSubtext({ matches: worstHero.matches ?? 0, winRate: worstHeroWinRate })}
+                subtext={copy.cards.worstHeroSubtext({
+                  matches: worstHero.matches ?? 0,
+                  outcomeMatches: worstHero.outcomeMatches,
+                  winRate: worstHeroWinRate,
+                })}
                 accent="red"
                 showAvatar
                 avatar={worstHero.heroAvatar}
@@ -1570,6 +1672,7 @@ function App() {
                 value={antiSignatureHero.hero}
                 subtext={copy.cards.antiSignatureHeroSubtext({
                   matches: antiSignatureHero.matches,
+                  outcomeMatches: antiSignatureHero.outcomeMatches,
                   winRate: antiSignatureHero.winRate,
                 })}
                 accent="red"
@@ -1591,22 +1694,28 @@ function App() {
               />
               <StatCard
                 label={copy.cards.rampageCount}
-                value={
-                  overviewAchievementTotals.rampageDataAvailable
-                    ? overviewAchievementTotals.rampage
-                    : copy.recentMatches.emptyValue
-                }
-                subtext={copy.cards.rampageCountSubtext(days)}
+                value={formatAchievementValue(
+                  overviewAchievementTotals.rampage,
+                  overviewAchievementTotals.rampageDataAvailable,
+                  overviewAchievementTotals.rampagePartialDataAvailable
+                )}
+                subtext={formatAchievementSubtext(
+                  overviewAchievementTotals.rampageCoverage,
+                  copy.cards.rampageCountSubtext(days)
+                )}
                 accent="red"
               />
               <StatCard
                 label={copy.cards.godlikeCount}
-                value={
-                  overviewAchievementTotals.godlikeDataAvailable
-                    ? overviewAchievementTotals.godlike
-                    : copy.recentMatches.emptyValue
-                }
-                subtext={copy.cards.godlikeCountSubtext(days)}
+                value={formatAchievementValue(
+                  overviewAchievementTotals.godlike,
+                  overviewAchievementTotals.godlikeDataAvailable,
+                  overviewAchievementTotals.godlikePartialDataAvailable
+                )}
+                subtext={formatAchievementSubtext(
+                  overviewAchievementTotals.godlikeCoverage,
+                  copy.cards.godlikeCountSubtext(days)
+                )}
                 accent="gold"
               />
               <StatCard
@@ -1673,6 +1782,9 @@ function App() {
                         <th>{copy.recentMatches.headers.kda}</th>
                         <th>{copy.overview.extremeValueHeader}</th>
                         <th>{copy.recentMatches.headers.matchId}</th>
+                        <th>
+                          <span className="sr-only">{copy.recentMatches.openMatch}</span>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1680,40 +1792,56 @@ function App() {
                         const match = item.match;
                         const resultLabel = copy.recentMatches.result?.[match.result] ?? emptyValue;
                         const rowClassName = `recent-row ${selectedRecentMatchId === match.matchId ? 'is-selected' : ''}`;
+                        const dateText = formatMatchDateTime(match.startTime, lang, emptyValue);
                         const kdaLine = `${formatEntryValue(match.kills, emptyValue)}/${formatEntryValue(match.deaths, emptyValue)}/${formatEntryValue(
                           match.assists,
                           emptyValue
                         )}`;
+                        const openAriaLabel = copy.recentMatches.openMatchAriaLabel({
+                          hero: match.hero || emptyValue,
+                          result: resultLabel,
+                          date: dateText,
+                        });
 
                         return (
-                          <tr
-                            key={`${item.id}-${match.matchId}`}
-                            className={rowClassName}
-                            tabIndex={0}
-                            onClick={() => handleOpenRecentMatchDetail(match)}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault();
-                                handleOpenRecentMatchDetail(match);
-                              }
-                            }}
-                          >
+                          <tr key={`${item.id}-${match.matchId}`} className={rowClassName}>
                             <td>{item.label}</td>
-                            <td>{formatMatchDateTime(match.startTime, lang, emptyValue)}</td>
+                            <td>{dateText}</td>
                             <td>
                               <div className="hero-name-cell">
                                 {match.heroAvatar ? (
-                                  <img src={match.heroAvatar} alt={match.hero} className="hero-avatar" loading="lazy" />
+                                  <img src={match.heroAvatar} alt="" className="hero-avatar" loading="lazy" />
                                 ) : null}
                                 <span>{match.hero || emptyValue}</span>
                               </div>
                             </td>
                             <td>
-                              <span className={`result-pill ${match.result === 'win' ? 'is-win' : 'is-loss'}`}>{resultLabel}</span>
+                              <span
+                                className={`result-pill ${
+                                  match.result === 'win'
+                                    ? 'is-win'
+                                    : match.result === 'loss'
+                                      ? 'is-loss'
+                                      : 'is-unknown'
+                                }`}
+                              >
+                                {resultLabel}
+                              </span>
                             </td>
                             <td>{kdaLine}</td>
                             <td>{formatIntegerDisplay(match.value, lang, emptyValue)}</td>
                             <td>{match.matchId ?? emptyValue}</td>
+                            <td className="table-action-cell">
+                              <button
+                                type="button"
+                                className="table-row-action"
+                                onClick={() => handleOpenRecentMatchDetail(match)}
+                                aria-label={openAriaLabel}
+                                aria-pressed={selectedRecentMatchId === match.matchId}
+                              >
+                                {copy.recentMatches.openMatch}
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}
@@ -1726,14 +1854,27 @@ function App() {
             </section>
 
             <section className="two-cols">
-              <RankDistribution items={dashboard.rankDistribution} days={days} copy={copy.rank} />
+              <RankDistribution
+                items={dashboard.rankDistribution}
+                coverage={dashboard.rankDistributionCoverage}
+                days={days}
+                copy={copy.rank}
+              />
               <GameModeDistributionPie items={overviewGameModeDistribution} days={days} copy={copy.overview.modeDistribution} />
             </section>
+              </div>
+            </details>
           </section>
         ) : null}
 
         {activeTab === TAB_IDS.trend ? (
-          <section id={`panel-${TAB_IDS.trend}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.trend}`} className="tab-content">
+          <section
+            id={`panel-${TAB_IDS.trend}`}
+            role="tabpanel"
+            aria-labelledby={panelLabelId(TAB_IDS.trend)}
+            className="tab-content"
+            tabIndex={0}
+          >
             <WinRateTrend data={dashboard.dailyWinRate} days={days} copy={copy.trend} percentage />
             <section className="two-cols trend-two-cols">
               <WinRateTrend data={dashboard.dailyKdaTrend ?? []} days={days} copy={kdaTrendCopy} />
@@ -1749,7 +1890,13 @@ function App() {
         ) : null}
 
         {activeTab === TAB_IDS.heroes ? (
-          <section id={`panel-${TAB_IDS.heroes}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.heroes}`} className="tab-content">
+          <section
+            id={`panel-${TAB_IDS.heroes}`}
+            role="tabpanel"
+            aria-labelledby={panelLabelId(TAB_IDS.heroes)}
+            className="tab-content"
+            tabIndex={0}
+          >
             <HeroPerformanceTable
               heroes={filteredHeroes}
               attributes={availableAttributes}
@@ -1772,16 +1919,32 @@ function App() {
         ) : null}
 
         {activeTab === TAB_IDS.teammates ? (
-          <section id={`panel-${TAB_IDS.teammates}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.teammates}`} className="tab-content">
-            <TeammatesPanel teammates={dashboard.teammates ?? []} days={days} lang={lang} copy={copy.teammates} />
+          <section
+            id={`panel-${TAB_IDS.teammates}`}
+            role="tabpanel"
+            aria-labelledby={panelLabelId(TAB_IDS.teammates)}
+            className="tab-content"
+            tabIndex={0}
+          >
+            <TeammatesPanel
+              teammates={dashboard.teammates ?? []}
+              days={days}
+              lang={lang}
+              copy={copy.teammates}
+              scope={dashboard.teammateScope ?? 'public-history'}
+              error={teammateAccessIssue?.message ?? ''}
+              errorRetryable={teammateAccessIssue?.retryable !== false}
+              retryAfter={teammateAccessIssue?.retryAfter ?? null}
+              onRetry={() => setReloadKey((value) => value + 1)}
+            />
           </section>
         ) : null}
 
         {activeTab === TAB_IDS.recentMatches ? (
           <section
             id={`panel-${TAB_IDS.recentMatches}`}
-            role="tabpanel"
-            aria-labelledby={`tab-${TAB_IDS.recentMatches}`}
+            role="region"
+            aria-labelledby={panelLabelId(TAB_IDS.recentMatches)}
             className="tab-content"
           >
             <RecentMatchesPanel
@@ -1801,31 +1964,33 @@ function App() {
         ) : null}
 
         {activeTab === TAB_IDS.allHeroes ? (
-          <section id={`panel-${TAB_IDS.allHeroes}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.allHeroes}`} className="tab-content">
-            <CatalogListPanel
-              title={copy.catalog.heroesTitle}
-              tag={copy.catalog.heroesTag(allHeroesCatalog.length)}
-              items={allHeroesCatalog}
-              emptyText={copy.catalog.heroesEmpty}
-              iconVariant="hero"
-              categories={heroCategories}
-              allCategoryLabel={copy.catalog.categories.all}
-            />
+          <section
+            id={`panel-${TAB_IDS.allHeroes}`}
+            role="tabpanel"
+            aria-labelledby={panelLabelId(TAB_IDS.allHeroes)}
+            className="tab-content"
+            tabIndex={0}
+          >
+            <Suspense fallback={<section className="panel resource-state" role="status">{copy.query.loading}</section>}>
+              <CatalogTab kind="heroes" lang={lang} copy={copy} heroMetaById={heroMetaById} />
+            </Suspense>
           </section>
         ) : null}
 
         {activeTab === TAB_IDS.allItems ? (
-          <section id={`panel-${TAB_IDS.allItems}`} role="tabpanel" aria-labelledby={`tab-${TAB_IDS.allItems}`} className="tab-content">
-            <CatalogListPanel
-              title={copy.catalog.itemsTitle}
-              tag={copy.catalog.itemsTag(allItemsCatalog.length)}
-              items={allItemsCatalog}
-              emptyText={copy.catalog.itemsEmpty}
-              iconVariant="item"
-              categories={itemCategories}
-              allCategoryLabel={copy.catalog.categories.all}
-            />
+          <section
+            id={`panel-${TAB_IDS.allItems}`}
+            role="tabpanel"
+            aria-labelledby={panelLabelId(TAB_IDS.allItems)}
+            className="tab-content"
+            tabIndex={0}
+          >
+            <Suspense fallback={<section className="panel resource-state" role="status">{copy.query.loading}</section>}>
+              <CatalogTab kind="items" lang={lang} copy={copy} />
+            </Suspense>
           </section>
+        ) : null}
+          </>
         ) : null}
       </main>
 
@@ -1838,6 +2003,7 @@ function App() {
         loading={recentMatchDetailLoading}
         error={recentMatchDetailError}
         onClose={handleCloseRecentMatchDetail}
+        onRetry={handleRetryRecentMatchDetail}
       />
     </div>
   );

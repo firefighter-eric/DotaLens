@@ -1,6 +1,7 @@
 export const heroPerformance = [
   {
     hero: 'Juggernaut',
+    heroAvatar: '/assets/heroes/juggernaut.png',
     attribute: 'Agility',
     role: 'Carry',
     matches: 38,
@@ -16,6 +17,7 @@ export const heroPerformance = [
   },
   {
     hero: 'Invoker',
+    heroAvatar: '/assets/heroes/invoker.png',
     attribute: 'Universal',
     role: 'Mid',
     matches: 33,
@@ -31,6 +33,7 @@ export const heroPerformance = [
   },
   {
     hero: 'Lion',
+    heroAvatar: '/assets/heroes/lion.png',
     attribute: 'Intelligence',
     role: 'Support',
     matches: 41,
@@ -46,6 +49,7 @@ export const heroPerformance = [
   },
   {
     hero: 'Mars',
+    heroAvatar: '/assets/heroes/mars.png',
     attribute: 'Strength',
     role: 'Offlane',
     matches: 27,
@@ -61,6 +65,7 @@ export const heroPerformance = [
   },
   {
     hero: 'Rubick',
+    heroAvatar: '/assets/heroes/rubick.png',
     attribute: 'Intelligence',
     role: 'Soft Support',
     matches: 30,
@@ -76,6 +81,7 @@ export const heroPerformance = [
   },
   {
     hero: 'Phantom Assassin',
+    heroAvatar: '/assets/heroes/phantom_assassin.png',
     attribute: 'Agility',
     role: 'Carry',
     matches: 24,

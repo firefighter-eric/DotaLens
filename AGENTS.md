@@ -4,16 +4,16 @@
 
 ## 项目概览
 
-- 技术栈：React 18 + Vite 5（纯前端项目，ESM）。
+- 技术栈：React 19 + Vite 8（纯前端项目，ESM）。
 - 核心数据源：OpenDota API（`src/services/opendotaClient.js` + `src/services/opendota.js`）。
 - 当前页面架构：Tab 化工作台（最近比赛、英雄池、队友、趋势、总览、全英雄、全物品）。
 - 查询能力：当前仅支持 Steam32，时间窗口为 30/365 天。
 - 关键交互：
-  - 账号弹窗登录/切换（最多 5 个账号，本地持久化）；
+  - 玩家档案弹窗新增/切换（最多 5 个 Steam32，本地持久化，不涉及 Steam 登录）；
   - 最近对局点击后打开详情抽屉（含全场玩家面板）；
   - 英雄池支持排序/筛选/最少场次/CSV 导出与行展开；
   - 队友页支持 peers 协同统计与最近遇到时间展示。
-- 回退策略：默认可展示 mock 数据（`src/data/mockDotaData.js`），网络失败时保留可浏览状态。
+- 示例策略：默认无账号时可展示明确标注的静态示例（`src/data/mockDotaData.js`）；网络失败时显示真实错误与恢复入口，用户可主动切换到示例，不会静默伪装为真实数据。
 
 ## 常用命令
 
@@ -21,13 +21,15 @@
 npm install
 npm run dev
 npm run lint
+npm run test:coverage
 npm run build
+npm run check:budget
 npm run preview
 npm run sync:heroes
 npm run sync:items
 ```
 
-要求：提交前至少通过 `npm run lint` 与 `npm run build`。
+要求：提交前至少通过 `npm run lint`、`npm run test:coverage`、`npm run build` 与 `npm run check:budget`。
 
 ## 目录职责
 

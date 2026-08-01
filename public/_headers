@@ -1,0 +1,26 @@
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https://api.opendota.com; img-src 'self' data: https://*.steamstatic.com https://steamcdn-a.akamaihd.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
+  Cross-Origin-Opener-Policy: same-origin
+  Permissions-Policy: camera=(), geolocation=(), microphone=(), payment=(), usb=()
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+
+/index.html
+  Cache-Control: no-cache
+
+/site.webmanifest
+  Cache-Control: no-cache
+
+/assets/*.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/assets/*.css
+  Cache-Control: public, max-age=31536000, immutable
+
+/assets/heroes/*
+  Cache-Control: public, max-age=604800
+
+/assets/items/*
+  Cache-Control: public, max-age=604800

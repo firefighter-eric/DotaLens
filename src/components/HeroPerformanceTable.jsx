@@ -1,9 +1,16 @@
-import { toPercent } from '../utils/metrics.js';
+import { useId } from 'react';
+import { formatHeroWinRate } from '../utils/metrics.js';
+import { differenceInLocalCalendarDays, toValidUnixDate } from '../utils/date.js';
 
 const fallbackCopy = {
   title: '英雄表现对比',
   tag: '支持排序/筛选/导出',
-  openHint: '点击英雄行展开该英雄在当前窗口的比赛',
+  openHint: '使用英雄名称按钮展开当前窗口的比赛',
+  tableAriaLabel: '英雄表现数据表',
+  heroMatchesTableAriaLabel: (hero) => `${hero}比赛明细`,
+  expandHero: (hero) => `展开 ${hero} 比赛明细`,
+  collapseHero: (hero) => `收起 ${hero} 比赛明细`,
+  sortColumn: (column) => `按${column}排序`,
   headers: {
     hero: '英雄',
     attribute: '属性',
@@ -38,6 +45,7 @@ const fallbackCopy = {
     resultCount: (count) => `共 ${count} 个英雄`,
   },
   heroMatchesEmpty: '该英雄暂无可展示的比赛明细。',
+  unknownOutcomeMatches: (count) => `${count} 场结果未知，胜率未计入`,
   empty: '当前筛选条件下没有英雄统计数据。',
 };
 
@@ -49,13 +57,24 @@ const fallbackRecentCopy = {
     gpmXpm: 'GPM / XPM',
     heroDamage: '英雄伤害',
     duration: '时长',
-    rank: '段位',
+    rank: '局内平均段位 / 技能组',
     matchId: '比赛 ID',
   },
+  rankKinds: {
+    matchAverageRank: '局内平均段位',
+    skillBracket: '技能组',
+    playerRank: '玩家段位',
+    unknown: '段位来源未知',
+  },
+  rankAriaLabel: ({ value, kind }) => `${kind}：${value}`,
   result: {
     win: '胜利',
     loss: '失败',
+    unknown: '未知',
   },
+  openMatch: '查看',
+  openMatchAriaLabel: ({ hero, result, date }) => `查看 ${date} ${hero} ${result}的比赛详情`,
+  tableAriaLabel: '比赛明细数据表',
   timeTags: {
     today: '今天',
     yesterday: '昨天',
@@ -66,7 +85,17 @@ const fallbackRecentCopy = {
   emptyValue: '-',
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const HERO_SORT_KEYS = [
+  'impact',
+  'attribute',
+  'matches',
+  'winRate',
+  'avgKda',
+  'avgGpm',
+  'avgXpm',
+  'hero',
+];
+
 const ATTRIBUTE_TONE_MAP = {
   str: 'strength',
   strength: 'strength',
@@ -92,7 +121,8 @@ const resolveAttributeTone = (attribute) => {
 };
 
 const formatDateTime = (startTime, locale, fallback) => {
-  if (!startTime) {
+  const date = toValidUnixDate(startTime);
+  if (!date) {
     return fallback;
   }
 
@@ -102,7 +132,7 @@ const formatDateTime = (startTime, locale, fallback) => {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  }).format(new Date(startTime * 1000));
+  }).format(date);
 };
 
 const formatDuration = (durationSec, fallback) => {
@@ -121,27 +151,55 @@ const formatNumber = (value, locale, fallback) => {
   return new Intl.NumberFormat(locale).format(value);
 };
 
-const getDayStartMs = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+const formatKdaLine = (match, fallback) => {
+  const part = (value) => (Number.isFinite(value) ? value : fallback);
+  const kda = Number.isFinite(match.kda) ? match.kda.toFixed(2) : fallback;
+  return `${part(match.kills)}/${part(match.deaths)}/${part(match.assists)} (${kda})`;
+};
+
+const getRankPresentation = (match, copy) => {
+  const value = match.rank || copy.emptyValue;
+  const rankKinds = copy.rankKinds || fallbackRecentCopy.rankKinds;
+  const kind = rankKinds[match.rankKind] || rankKinds.unknown;
+  const ariaLabel =
+    typeof copy.rankAriaLabel === 'function'
+      ? copy.rankAriaLabel({ value, kind })
+      : fallbackRecentCopy.rankAriaLabel({ value, kind });
+  return { value, kind, ariaLabel };
+};
+
+const getResultTone = (result) => {
+  if (result === 'win') {
+    return 'is-win';
+  }
+  if (result === 'loss') {
+    return 'is-loss';
+  }
+  return 'is-unknown';
+};
 
 const resolveMatchTimeTag = (startTime, boundaries, labels) => {
-  if (!startTime || !labels) {
+  const startDate = toValidUnixDate(startTime);
+  if (!startDate || !labels) {
     return null;
   }
 
-  const startMs = startTime * 1000;
+  const startMs = startDate.getTime();
   if (!Number.isFinite(startMs)) {
     return null;
   }
 
-  const matchDayStartMs = getDayStartMs(new Date(startMs));
-  const diffDays = Math.floor((boundaries.todayStartMs - matchDayStartMs) / DAY_MS);
+  const diffDays = differenceInLocalCalendarDays(
+    boundaries.today,
+    new Date(startMs)
+  );
   if (!Number.isFinite(diffDays) || diffDays < 0) {
     return null;
   }
-  if (matchDayStartMs === boundaries.todayStartMs) {
+  if (diffDays === 0) {
     return { key: 'today', label: labels.today };
   }
-  if (matchDayStartMs === boundaries.yesterdayStartMs) {
+  if (diffDays === 1) {
     return { key: 'yesterday', label: labels.yesterday };
   }
   if (diffDays <= 3) {
@@ -175,6 +233,7 @@ function HeroPerformanceTable({
   lang = 'zh',
   copy = fallbackCopy,
 }) {
+  const titleId = useId();
   const activeControls = controls ?? {
     sortKey: 'winRate',
     sortDir: 'desc',
@@ -194,15 +253,19 @@ function HeroPerformanceTable({
       ...(recentCopy?.result ?? {}),
     },
     timeTags: {
-      ...fallbackRecentCopy.timeTags,
+      ...(lang === 'en'
+        ? {
+            today: 'Today',
+            yesterday: 'Yesterday',
+            within3Days: 'Within 3 Days',
+            within7Days: 'Within 7 Days',
+            within30Days: 'Within 30 Days',
+          }
+        : fallbackRecentCopy.timeTags),
       ...(recentCopy?.timeTags ?? {}),
     },
   };
-  const now = new Date();
-  const timeBoundaries = {
-    todayStartMs: getDayStartMs(now),
-    yesterdayStartMs: getDayStartMs(now) - DAY_MS,
-  };
+  const timeBoundaries = { today: new Date() };
   const toggleSort = (nextKey) => {
     if (activeControls.sortKey === nextKey) {
       onSortDirChange?.(activeControls.sortDir === 'desc' ? 'asc' : 'desc');
@@ -215,19 +278,69 @@ function HeroPerformanceTable({
     if (activeControls.sortKey !== key) {
       return null;
     }
-    return activeControls.sortDir === 'desc' ? ' ↓' : ' ↑';
+    return (
+      <span aria-hidden="true" className="sort-indicator">
+        {activeControls.sortDir === 'desc' ? '↓' : '↑'}
+      </span>
+    );
+  };
+  const resolveAriaSort = (key) => {
+    if (activeControls.sortKey !== key) {
+      return 'none';
+    }
+    return activeControls.sortDir === 'desc' ? 'descending' : 'ascending';
+  };
+  const resolveSortLabel = (key) => {
+    const label = copy.headers[key];
+    return typeof copy.sortColumn === 'function' ? copy.sortColumn(label) : fallbackCopy.sortColumn(label);
+  };
+  const controlCopy = copy.controls ?? fallbackCopy.controls;
+  const sortOptions = {
+    ...fallbackCopy.controls.sortOptions,
+    ...(controlCopy.sortOptions ?? {}),
+  };
+  const directionOptions = {
+    ...fallbackCopy.controls.directionOptions,
+    ...(controlCopy.directionOptions ?? {}),
   };
 
   return (
-    <section className="panel table-panel">
+    <section className="panel table-panel" aria-labelledby={titleId}>
       <div className="panel-header">
-        <h2>{copy.title}</h2>
+        <h2 id={titleId}>{copy.title}</h2>
         <div className="recent-panel-actions">
-          <span className="panel-tag">{copy.controls.resultCount(heroes.length)}</span>
+          <span className="panel-tag" role="status" aria-live="polite">
+            {copy.controls.resultCount(heroes.length)}
+          </span>
           <span className="panel-tag panel-tag--subtle">{copy.openHint || fallbackCopy.openHint}</span>
         </div>
       </div>
       <div className="table-controls" role="group" aria-label={copy.title}>
+        <div className="mobile-sort-controls">
+          <label>
+            <span>{controlCopy.sortLabel}</span>
+            <select
+              value={activeControls.sortKey}
+              onChange={(event) => onSortKeyChange?.(event.target.value)}
+            >
+              {HERO_SORT_KEYS.map((key) => (
+                <option key={key} value={key}>
+                  {sortOptions[key]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{controlCopy.sortDirectionLabel}</span>
+            <select
+              value={activeControls.sortDir}
+              onChange={(event) => onSortDirChange?.(event.target.value)}
+            >
+              <option value="desc">{directionOptions.desc}</option>
+              <option value="asc">{directionOptions.asc}</option>
+            </select>
+          </label>
+        </div>
         <label>
           <span>{copy.controls.attributeLabel}</span>
           <select
@@ -256,54 +369,95 @@ function HeroPerformanceTable({
           {copy.controls.export}
         </button>
       </div>
-      <div className="table-wrap">
+      <div
+        className="table-wrap desktop-data-table"
+        role="region"
+        aria-label={copy.tableAriaLabel || fallbackCopy.tableAriaLabel}
+        tabIndex={0}
+      >
         <table>
+          <caption className="sr-only">{copy.tableAriaLabel || fallbackCopy.tableAriaLabel}</caption>
           <thead>
             <tr>
-              <th>
-                <button type="button" className="sort-th-btn" onClick={() => toggleSort('hero')}>
+              <th scope="col" aria-sort={resolveAriaSort('hero')}>
+                <button type="button" className="sort-th-btn" onClick={() => toggleSort('hero')} aria-label={resolveSortLabel('hero')}>
                   {copy.headers.hero}
                   {renderSortIndicator('hero')}
                 </button>
               </th>
-              <th>
-                <button type="button" className="sort-th-btn" onClick={() => toggleSort('attribute')}>
+              <th scope="col" aria-sort={resolveAriaSort('attribute')}>
+                <button
+                  type="button"
+                  className="sort-th-btn"
+                  onClick={() => toggleSort('attribute')}
+                  aria-label={resolveSortLabel('attribute')}
+                >
                   {copy.headers.attribute}
                   {renderSortIndicator('attribute')}
                 </button>
               </th>
-              <th>
-                <button type="button" className="sort-th-btn" onClick={() => toggleSort('matches')}>
+              <th scope="col" aria-sort={resolveAriaSort('matches')}>
+                <button
+                  type="button"
+                  className="sort-th-btn"
+                  onClick={() => toggleSort('matches')}
+                  aria-label={resolveSortLabel('matches')}
+                >
                   {copy.headers.matches}
                   {renderSortIndicator('matches')}
                 </button>
               </th>
-              <th>
-                <button type="button" className="sort-th-btn" onClick={() => toggleSort('winRate')}>
+              <th scope="col" aria-sort={resolveAriaSort('winRate')}>
+                <button
+                  type="button"
+                  className="sort-th-btn"
+                  onClick={() => toggleSort('winRate')}
+                  aria-label={resolveSortLabel('winRate')}
+                >
                   {copy.headers.winRate}
                   {renderSortIndicator('winRate')}
                 </button>
               </th>
-              <th>
-                <button type="button" className="sort-th-btn" onClick={() => toggleSort('avgKda')}>
+              <th scope="col" aria-sort={resolveAriaSort('avgKda')}>
+                <button
+                  type="button"
+                  className="sort-th-btn"
+                  onClick={() => toggleSort('avgKda')}
+                  aria-label={resolveSortLabel('avgKda')}
+                >
                   {copy.headers.avgKda}
                   {renderSortIndicator('avgKda')}
                 </button>
               </th>
-              <th>
-                <button type="button" className="sort-th-btn" onClick={() => toggleSort('avgGpm')}>
+              <th scope="col" aria-sort={resolveAriaSort('avgGpm')}>
+                <button
+                  type="button"
+                  className="sort-th-btn"
+                  onClick={() => toggleSort('avgGpm')}
+                  aria-label={resolveSortLabel('avgGpm')}
+                >
                   {copy.headers.avgGpm}
                   {renderSortIndicator('avgGpm')}
                 </button>
               </th>
-              <th>
-                <button type="button" className="sort-th-btn" onClick={() => toggleSort('avgXpm')}>
+              <th scope="col" aria-sort={resolveAriaSort('avgXpm')}>
+                <button
+                  type="button"
+                  className="sort-th-btn"
+                  onClick={() => toggleSort('avgXpm')}
+                  aria-label={resolveSortLabel('avgXpm')}
+                >
                   {copy.headers.avgXpm}
                   {renderSortIndicator('avgXpm')}
                 </button>
               </th>
-              <th>
-                <button type="button" className="sort-th-btn" onClick={() => toggleSort('impact')}>
+              <th scope="col" aria-sort={resolveAriaSort('impact')}>
+                <button
+                  type="button"
+                  className="sort-th-btn"
+                  onClick={() => toggleSort('impact')}
+                  aria-label={resolveSortLabel('impact')}
+                >
                   {copy.headers.impact}
                   {renderSortIndicator('impact')}
                 </button>
@@ -315,55 +469,100 @@ function HeroPerformanceTable({
               heroes.map((hero) => {
                 const rowId = hero.heroId ?? hero.hero;
                 const isSelected = selectedHeroId === rowId;
-                const winRate = `${toPercent(hero.wins, hero.matches)}%`;
+                const winRate = formatHeroWinRate(hero, effectiveRecentCopy.emptyValue);
+                const impact = Number.isFinite(hero.impact)
+                  ? hero.impact
+                  : effectiveRecentCopy.emptyValue;
+                const unknownOutcomeMatches = Number.isFinite(hero.unknownOutcomeMatches)
+                  ? Math.max(0, hero.unknownOutcomeMatches)
+                  : Number.isFinite(hero.unknownOutcomes)
+                    ? Math.max(0, hero.unknownOutcomes)
+                    : Math.max(0, (hero.matches ?? 0) - (hero.outcomeMatches ?? hero.matches ?? 0));
+                const unknownOutcomeLabel =
+                  typeof copy.unknownOutcomeMatches === 'function'
+                    ? copy.unknownOutcomeMatches(unknownOutcomeMatches)
+                    : fallbackCopy.unknownOutcomeMatches(unknownOutcomeMatches);
                 const avgGpm = Number.isFinite(hero.avgGpm) ? hero.avgGpm : '-';
                 const avgXpm = Number.isFinite(hero.avgXpm) ? hero.avgXpm : '-';
+                const avgKda = Number.isFinite(hero.avgKda) ? hero.avgKda : '-';
                 const heroMatches = heroMatchesMap.get(rowId) ?? [];
                 const attributeTone = resolveAttributeTone(hero.attribute);
                 const attributeLabel = hero.attribute || '-';
+                const detailId = `hero-detail-${String(rowId).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+                const expandLabel =
+                  typeof copy.expandHero === 'function' ? copy.expandHero(hero.hero) : fallbackCopy.expandHero(hero.hero);
+                const collapseLabel =
+                  typeof copy.collapseHero === 'function' ? copy.collapseHero(hero.hero) : fallbackCopy.collapseHero(hero.hero);
 
                 return [
                   <tr
                     key={`hero-row-${rowId}`}
                     className={`hero-row ${isSelected ? 'is-selected' : ''}`}
-                    tabIndex={0}
-                    onClick={() => onSelectHero?.(hero)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        onSelectHero?.(hero);
-                      }
-                    }}
                   >
                     <td>
-                      <div className="hero-name-cell">
-                        {hero.heroAvatar ? <img src={hero.heroAvatar} alt={hero.hero} className="hero-avatar" loading="lazy" /> : null}
-                        <span>{hero.hero}</span>
-                      </div>
+                      <button
+                        type="button"
+                        className="hero-expand-btn"
+                        onClick={() => onSelectHero?.(hero)}
+                        aria-expanded={isSelected}
+                        aria-controls={detailId}
+                        aria-label={isSelected ? collapseLabel : expandLabel}
+                      >
+                        <span className="hero-name-cell">
+                          {hero.heroAvatar ? <img src={hero.heroAvatar} alt="" className="hero-avatar" loading="lazy" /> : null}
+                          <span>{hero.hero}</span>
+                        </span>
+                        <span className="hero-expand-indicator" aria-hidden="true">
+                          {isSelected ? '−' : '+'}
+                        </span>
+                      </button>
                     </td>
                     <td>
                       <span className={`attribute-tag is-${attributeTone}`}>{attributeLabel}</span>
                     </td>
-                    <td>{hero.matches}</td>
+                    <td>
+                      {hero.matches}
+                      {unknownOutcomeMatches > 0 ? (
+                        <span className="unknown-outcome-note" title={unknownOutcomeLabel} aria-label={unknownOutcomeLabel}>
+                          +?
+                        </span>
+                      ) : null}
+                    </td>
                     <td>{winRate}</td>
-                    <td>{hero.avgKda}</td>
+                    <td>{avgKda}</td>
                     <td>{avgGpm}</td>
                     <td>{avgXpm}</td>
                     <td>
                       <div className="impact-cell">
-                        <span>{hero.impact}</span>
-                        <div className="impact-bar">
-                          <i style={{ width: `${hero.impact}%` }} />
-                        </div>
+                        <span>{impact}</span>
+                        {Number.isFinite(hero.impact) ? (
+                          <div className="impact-bar">
+                            <i style={{ width: `${hero.impact}%` }} />
+                          </div>
+                        ) : null}
                       </div>
                     </td>
                   </tr>,
                   isSelected ? (
-                    <tr key={`hero-row-detail-${rowId}`} className="hero-row-detail">
+                    <tr key={`hero-row-detail-${rowId}`} id={detailId} className="hero-row-detail">
                       <td colSpan={8}>
                         {heroMatches.length > 0 ? (
-                          <div className="hero-match-table-wrap">
+                          <div
+                            className="hero-match-table-wrap"
+                            role="region"
+                            aria-label={
+                              typeof copy.heroMatchesTableAriaLabel === 'function'
+                                ? copy.heroMatchesTableAriaLabel(hero.hero)
+                                : fallbackCopy.heroMatchesTableAriaLabel(hero.hero)
+                            }
+                            tabIndex={0}
+                          >
                             <table className="hero-match-table">
+                              <caption className="sr-only">
+                                {typeof copy.heroMatchesTableAriaLabel === 'function'
+                                  ? copy.heroMatchesTableAriaLabel(hero.hero)
+                                  : fallbackCopy.heroMatchesTableAriaLabel(hero.hero)}
+                              </caption>
                               <thead>
                                 <tr>
                                   <th>{effectiveRecentCopy.headers.date}</th>
@@ -374,51 +573,72 @@ function HeroPerformanceTable({
                                   <th>{effectiveRecentCopy.headers.duration}</th>
                                   <th>{effectiveRecentCopy.headers.rank}</th>
                                   <th>{effectiveRecentCopy.headers.matchId}</th>
+                                  <th>
+                                    <span className="sr-only">{effectiveRecentCopy.openMatch}</span>
+                                  </th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {heroMatches.map((match) => {
-                                  const kdaValue = Number.isFinite(match.kda) ? match.kda.toFixed(2) : effectiveRecentCopy.emptyValue;
+                                  const kdaLine = formatKdaLine(match, effectiveRecentCopy.emptyValue);
                                   const gpm = Number.isFinite(match.goldPerMin) ? match.goldPerMin : effectiveRecentCopy.emptyValue;
                                   const xpm = Number.isFinite(match.xpPerMin) ? match.xpPerMin : effectiveRecentCopy.emptyValue;
                                   const heroDamage = formatNumber(match.heroDamage, locale, effectiveRecentCopy.emptyValue);
-                                  const rowClassName = `recent-row ${selectedMatchId === match.matchId ? 'is-selected' : ''}`;
                                   const timeTag = resolveMatchTimeTag(match.startTime, timeBoundaries, effectiveRecentCopy.timeTags);
+                                  const dateText = formatDateTime(match.startTime, locale, effectiveRecentCopy.emptyValue);
+                                  const resultText = effectiveRecentCopy.result[match.result] ?? effectiveRecentCopy.emptyValue;
+                                  const rankPresentation = getRankPresentation(match, effectiveRecentCopy);
+                                  const openAriaLabel =
+                                    typeof effectiveRecentCopy.openMatchAriaLabel === 'function'
+                                      ? effectiveRecentCopy.openMatchAriaLabel({
+                                          hero: hero.hero,
+                                          result: resultText,
+                                          date: dateText,
+                                        })
+                                      : fallbackRecentCopy.openMatchAriaLabel({
+                                          hero: hero.hero,
+                                          result: resultText,
+                                          date: dateText,
+                                        });
 
                                   return (
-                                    <tr
-                                      key={match.matchId}
-                                      className={rowClassName}
-                                      tabIndex={0}
-                                      onClick={() => onSelectMatch?.(match)}
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter' || event.key === ' ') {
-                                          event.preventDefault();
-                                          onSelectMatch?.(match);
-                                        }
-                                      }}
-                                    >
+                                    <tr key={match.matchId} className={selectedMatchId === match.matchId ? 'is-selected' : ''}>
                                       <td>
                                         <div className="recent-date-cell">
-                                          <span>{formatDateTime(match.startTime, locale, effectiveRecentCopy.emptyValue)}</span>
+                                          <span>{dateText}</span>
                                           {timeTag ? <span className={`recent-time-tag is-${timeTag.key}`}>{timeTag.label}</span> : null}
                                         </div>
                                       </td>
                                       <td>
-                                        <span className={`result-pill ${match.result === 'win' ? 'is-win' : 'is-loss'}`}>
-                                          {effectiveRecentCopy.result[match.result] ?? effectiveRecentCopy.emptyValue}
+                                        <span className={`result-pill ${getResultTone(match.result)}`}>
+                                          {resultText}
                                         </span>
                                       </td>
                                       <td>
-                                        {match.kills}/{match.deaths}/{match.assists} ({kdaValue})
+                                        {kdaLine}
                                       </td>
                                       <td>
                                         {gpm} / {xpm}
                                       </td>
                                       <td>{heroDamage}</td>
                                       <td>{formatDuration(match.durationSec, effectiveRecentCopy.emptyValue)}</td>
-                                      <td>{match.rank || effectiveRecentCopy.emptyValue}</td>
+                                      <td>
+                                        <span title={rankPresentation.kind} aria-label={rankPresentation.ariaLabel}>
+                                          {rankPresentation.value}
+                                        </span>
+                                      </td>
                                       <td>{match.matchId}</td>
+                                      <td className="table-action-cell">
+                                        <button
+                                          type="button"
+                                          className="table-row-action"
+                                          onClick={() => onSelectMatch?.(match)}
+                                          aria-label={openAriaLabel}
+                                          aria-pressed={selectedMatchId === match.matchId}
+                                        >
+                                          {effectiveRecentCopy.openMatch}
+                                        </button>
+                                      </td>
                                     </tr>
                                   );
                                 })}
@@ -442,6 +662,132 @@ function HeroPerformanceTable({
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="hero-mobile-list" aria-label={copy.tableAriaLabel || fallbackCopy.tableAriaLabel}>
+        {heroes.length > 0 ? (
+          heroes.map((hero) => {
+            const rowId = hero.heroId ?? hero.hero;
+            const isSelected = selectedHeroId === rowId;
+            const detailId = `hero-mobile-detail-${String(rowId).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+            const heroMatches = heroMatchesMap.get(rowId) ?? [];
+            const winRate = formatHeroWinRate(hero, effectiveRecentCopy.emptyValue);
+            const impact = Number.isFinite(hero.impact)
+              ? hero.impact
+              : effectiveRecentCopy.emptyValue;
+            const avgKda = Number.isFinite(hero.avgKda)
+              ? hero.avgKda
+              : effectiveRecentCopy.emptyValue;
+            const unknownOutcomeMatches = Number.isFinite(hero.unknownOutcomeMatches)
+              ? Math.max(0, hero.unknownOutcomeMatches)
+              : Number.isFinite(hero.unknownOutcomes)
+                ? Math.max(0, hero.unknownOutcomes)
+                : Math.max(0, (hero.matches ?? 0) - (hero.outcomeMatches ?? hero.matches ?? 0));
+            const unknownOutcomeLabel =
+              typeof copy.unknownOutcomeMatches === 'function'
+                ? copy.unknownOutcomeMatches(unknownOutcomeMatches)
+                : fallbackCopy.unknownOutcomeMatches(unknownOutcomeMatches);
+            const attributeTone = resolveAttributeTone(hero.attribute);
+            const expandLabel =
+              typeof copy.expandHero === 'function' ? copy.expandHero(hero.hero) : fallbackCopy.expandHero(hero.hero);
+            const collapseLabel =
+              typeof copy.collapseHero === 'function' ? copy.collapseHero(hero.hero) : fallbackCopy.collapseHero(hero.hero);
+
+            return (
+              <article key={`hero-mobile-${rowId}`} className={`hero-mobile-item ${isSelected ? 'is-selected' : ''}`}>
+                <button
+                  type="button"
+                  className="hero-mobile-card"
+                  onClick={() => onSelectHero?.(hero)}
+                  aria-expanded={isSelected}
+                  aria-controls={detailId}
+                  aria-label={isSelected ? collapseLabel : expandLabel}
+                >
+                  <span className="hero-mobile-card__head">
+                    <span className="hero-name-cell">
+                      {hero.heroAvatar ? <img src={hero.heroAvatar} alt="" className="hero-avatar" loading="lazy" /> : null}
+                      <strong>{hero.hero}</strong>
+                    </span>
+                    <span className={`attribute-tag is-${attributeTone}`}>{hero.attribute || '-'}</span>
+                  </span>
+                  <span className="hero-mobile-card__metrics">
+                    <span>
+                      <em>{copy.headers.matches}</em>
+                      <strong>
+                        {hero.matches}
+                        {unknownOutcomeMatches > 0 ? (
+                          <span className="unknown-outcome-note" title={unknownOutcomeLabel} aria-label={unknownOutcomeLabel}>
+                            +?
+                          </span>
+                        ) : null}
+                      </strong>
+                    </span>
+                    <span>
+                      <em>{copy.headers.winRate}</em>
+                      <strong>{winRate}</strong>
+                    </span>
+                    <span>
+                      <em>{copy.headers.avgKda}</em>
+                      <strong>{avgKda}</strong>
+                    </span>
+                    <span>
+                      <em>{copy.headers.impact}</em>
+                      <strong>{impact}</strong>
+                    </span>
+                  </span>
+                </button>
+
+                {isSelected ? (
+                  <div id={detailId} className="hero-mobile-detail">
+                    {heroMatches.length > 0 ? (
+                      <div className="hero-mobile-match-list">
+                        {heroMatches.map((match) => {
+                          const dateText = formatDateTime(match.startTime, locale, effectiveRecentCopy.emptyValue);
+                          const resultText = effectiveRecentCopy.result[match.result] ?? effectiveRecentCopy.emptyValue;
+                          const openAriaLabel =
+                            typeof effectiveRecentCopy.openMatchAriaLabel === 'function'
+                              ? effectiveRecentCopy.openMatchAriaLabel({
+                                  hero: hero.hero,
+                                  result: resultText,
+                                  date: dateText,
+                                })
+                              : fallbackRecentCopy.openMatchAriaLabel({
+                                  hero: hero.hero,
+                                  result: resultText,
+                                  date: dateText,
+                                });
+
+                          return (
+                            <button
+                              key={`hero-mobile-match-${match.matchId}`}
+                              type="button"
+                              className={`hero-mobile-match ${selectedMatchId === match.matchId ? 'is-selected' : ''}`}
+                              onClick={() => onSelectMatch?.(match)}
+                              aria-label={openAriaLabel}
+                              aria-pressed={selectedMatchId === match.matchId}
+                            >
+                              <span>
+                                <strong>{dateText}</strong>
+                                <span className={`result-pill ${getResultTone(match.result)}`}>{resultText}</span>
+                              </span>
+                              <span>
+                                {effectiveRecentCopy.headers.kda}: {formatKdaLine(match, effectiveRecentCopy.emptyValue)}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="empty-text hero-match-empty">{copy.heroMatchesEmpty ?? fallbackCopy.heroMatchesEmpty}</p>
+                    )}
+                  </div>
+                ) : null}
+              </article>
+            );
+          })
+        ) : (
+          <p className="empty-text">{copy.empty}</p>
+        )}
       </div>
     </section>
   );
