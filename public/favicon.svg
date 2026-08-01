@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="DotaLens">
+  <rect width="64" height="64" rx="12" fill="#d81f2a"/>
+  <circle cx="28" cy="28" r="16" fill="none" stroke="#ffffff" stroke-width="6"/>
+  <path d="m40 40 13 13" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-width="7"/>
+  <path d="M18 18 38 38M38 18 18 38" fill="none" stroke="#f0b64f" stroke-linecap="round" stroke-width="3"/>
+</svg>

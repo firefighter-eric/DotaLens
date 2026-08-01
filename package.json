@@ -1,26 +1,55 @@
 {
   "name": "dotalens",
   "version": "0.1.0",
+  "description": "A bilingual, privacy-conscious Dota 2 analytics dashboard powered by OpenDota.",
   "private": true,
+  "license": "MIT",
+  "author": "DotaLens contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/firefighter-eric/DotaLens.git"
+  },
+  "bugs": {
+    "url": "https://github.com/firefighter-eric/DotaLens/issues"
+  },
+  "homepage": "https://github.com/firefighter-eric/DotaLens#readme",
   "type": "module",
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11 <12"
+  },
+  "packageManager": "npm@11.19.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "check:budget": "node scripts/checkBudgets.mjs",
+    "audit": "npm audit --omit=dev --audit-level=high",
+    "audit:all": "npm audit --audit-level=high",
+    "check": "npm run lint && npm run test && npm run build && npm run check:budget",
     "sync:heroes": "node scripts/syncHeroes.mjs",
     "sync:items": "node scripts/syncItems.mjs"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "eslint": "^9.17.0",
-    "eslint-plugin-react-hooks": "^5.0.0",
-    "eslint-plugin-react-refresh": "^0.4.16",
-    "globals": "^15.14.0",
-    "vite": "^5.4.10"
+    "@eslint/js": "10.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@vitejs/plugin-react": "6.0.5",
+    "@vitest/coverage-v8": "4.1.10",
+    "eslint": "10.8.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.3",
+    "globals": "17.8.0",
+    "jsdom": "^29.1.1",
+    "vite": "8.2.0",
+    "vitest": "4.1.10"
   }
 }

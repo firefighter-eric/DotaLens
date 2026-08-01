@@ -6,8 +6,32 @@ export const toPercent = (wins, matches) => {
 };
 
 const toFiniteOrNull = (value) => {
+  if (value == null || (typeof value === 'string' && value.trim() === '')) {
+    return null;
+  }
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+};
+
+export const resolveHeroWinRate = (hero) => {
+  const knownOutcomes = toFiniteOrNull(hero?.outcomeMatches);
+  if (knownOutcomes !== null && knownOutcomes <= 0) {
+    return null;
+  }
+
+  const explicit = toFiniteOrNull(hero?.winRate);
+  if (explicit !== null) {
+    return explicit;
+  }
+
+  const denominator = knownOutcomes ?? toFiniteOrNull(hero?.matches);
+  const wins = toFiniteOrNull(hero?.wins) ?? 0;
+  return denominator !== null && denominator > 0 ? (wins / denominator) * 100 : null;
+};
+
+export const formatHeroWinRate = (hero, emptyValue = '-') => {
+  const winRate = resolveHeroWinRate(hero);
+  return winRate === null ? emptyValue : `${winRate.toFixed(1)}%`;
 };
 
 const toOverviewMatch = (entry) => {
@@ -126,8 +150,8 @@ export const summarizeDashboard = (heroData, windowMatches = []) => {
   if (!heroData.length) {
     return {
       totalMatches: 0,
-      overallWinRate: '0.0',
-      avgKda: '0.00',
+      overallWinRate: null,
+      avgKda: null,
       avgGpm: null,
       avgXpm: null,
       longestWinStreak: streaks.longestWinStreak,
@@ -142,62 +166,109 @@ export const summarizeDashboard = (heroData, windowMatches = []) => {
         impact: 0,
         avgGpm: null,
         matches: 0,
-        winRate: '0.0',
+        outcomeMatches: 0,
+        winRate: null,
         heroAvatar: '',
       },
       mostPlayedHero: {
         hero: '-',
         heroAvatar: '',
         matches: 0,
-        winRate: '0.0',
+        outcomeMatches: 0,
+        winRate: null,
       },
       signatureHero: {
         hero: '-',
         heroAvatar: '',
         matches: 0,
-        winRate: '0.0',
+        outcomeMatches: 0,
+        winRate: null,
       },
       antiSignatureHero: {
         hero: '-',
         heroAvatar: '',
         matches: 0,
-        winRate: '0.0',
+        outcomeMatches: 0,
+        winRate: null,
       },
     };
   }
 
   const totals = heroData.reduce(
     (acc, hero) => {
-      acc.matches += hero.matches;
-      acc.wins += hero.wins;
+      const matches = Math.max(0, toFiniteOrNull(hero.matches) ?? 0);
+      const outcomeMatches = Math.max(
+        0,
+        toFiniteOrNull(hero.outcomeMatches) ?? matches
+      );
+      const wins = Math.min(
+        outcomeMatches,
+        Math.max(0, toFiniteOrNull(hero.wins) ?? 0)
+      );
+      acc.matches += matches;
+      acc.outcomeMatches += outcomeMatches;
+      acc.wins += wins;
       const kills = toFiniteOrNull(hero.kills);
       const deaths = toFiniteOrNull(hero.deaths);
       const assists = toFiniteOrNull(hero.assists);
-      if (kills !== null && deaths !== null && assists !== null) {
+      const kdaMatches = Math.max(
+        0,
+        toFiniteOrNull(hero.kdaMatches) ?? matches
+      );
+      if (
+        kdaMatches > 0 &&
+        kills !== null &&
+        deaths !== null &&
+        assists !== null
+      ) {
         acc.totalKa += kills + assists;
         acc.totalDeaths += deaths;
+        acc.kdaMatches += kdaMatches;
       }
-      const matches = toFiniteOrNull(hero.matches);
-      if (Number.isFinite(hero.avgGpm) && matches !== null && matches > 0) {
-        acc.gpm += hero.avgGpm * matches;
-        acc.gpmCount += matches;
+      const gpmMatches = Math.max(
+        0,
+        toFiniteOrNull(hero.gpmMatches) ?? matches
+      );
+      if (Number.isFinite(hero.avgGpm) && gpmMatches > 0) {
+        acc.gpm += hero.avgGpm * gpmMatches;
+        acc.gpmCount += gpmMatches;
       }
-      if (Number.isFinite(hero.avgXpm) && matches !== null && matches > 0) {
-        acc.xpm += hero.avgXpm * matches;
-        acc.xpmCount += matches;
+      const xpmMatches = Math.max(
+        0,
+        toFiniteOrNull(hero.xpmMatches) ?? matches
+      );
+      if (Number.isFinite(hero.avgXpm) && xpmMatches > 0) {
+        acc.xpm += hero.avgXpm * xpmMatches;
+        acc.xpmCount += xpmMatches;
       }
       return acc;
     },
-    { matches: 0, wins: 0, totalKa: 0, totalDeaths: 0, gpm: 0, gpmCount: 0, xpm: 0, xpmCount: 0 }
+    {
+      matches: 0,
+      outcomeMatches: 0,
+      wins: 0,
+      totalKa: 0,
+      totalDeaths: 0,
+      kdaMatches: 0,
+      gpm: 0,
+      gpmCount: 0,
+      xpm: 0,
+      xpmCount: 0,
+    }
   );
 
   const bestHero = [...heroData].sort((a, b) => b.impact - a.impact)[0];
-  const worstHeroCandidates = heroData.filter((hero) => Number(hero?.matches) >= 2);
+  const worstHeroCandidates = heroData.filter(
+    (hero) =>
+      (toFiniteOrNull(hero?.outcomeMatches) ??
+        toFiniteOrNull(hero?.matches) ??
+        0) >= 2
+  );
   const worstHero =
     (worstHeroCandidates.length > 0
       ? [...worstHeroCandidates].sort((a, b) => {
-          const aWinRate = a.wins / Math.max(1, a.matches);
-          const bWinRate = b.wins / Math.max(1, b.matches);
+          const aWinRate = resolveHeroWinRate(a) ?? Number.POSITIVE_INFINITY;
+          const bWinRate = resolveHeroWinRate(b) ?? Number.POSITIVE_INFINITY;
           if (aWinRate !== bWinRate) {
             return aWinRate - bWinRate;
           }
@@ -217,10 +288,20 @@ export const summarizeDashboard = (heroData, windowMatches = []) => {
   const mostPlayedHero = [...heroData].sort((a, b) => b.matches - a.matches)[0];
   const topByMatches = [...heroData].sort((a, b) => b.matches - a.matches);
   const topTenPercentCount = Math.max(1, Math.ceil(topByMatches.length * 0.1));
-  const signatureHero = topByMatches
+  const signatureCandidates = topByMatches
     .slice(0, topTenPercentCount)
+    .filter(
+      (hero) =>
+        (toFiniteOrNull(hero?.outcomeMatches) ??
+          toFiniteOrNull(hero?.matches) ??
+          0) >= 2
+    );
+  const signatureHero = signatureCandidates
+    .slice()
     .sort((a, b) => {
-      const winRateDiff = b.wins / Math.max(1, b.matches) - a.wins / Math.max(1, a.matches);
+      const winRateDiff =
+        (resolveHeroWinRate(b) ?? Number.NEGATIVE_INFINITY) -
+        (resolveHeroWinRate(a) ?? Number.NEGATIVE_INFINITY);
       if (winRateDiff !== 0) {
         return winRateDiff;
       }
@@ -228,11 +309,13 @@ export const summarizeDashboard = (heroData, windowMatches = []) => {
         return b.matches - a.matches;
       }
       return String(a.hero ?? '').localeCompare(String(b.hero ?? ''));
-    })[0];
-  const antiSignatureHero = topByMatches
-    .slice(0, topTenPercentCount)
+    })[0] ?? null;
+  const antiSignatureHero = signatureCandidates
+    .slice()
     .sort((a, b) => {
-      const winRateDiff = a.wins / Math.max(1, a.matches) - b.wins / Math.max(1, b.matches);
+      const winRateDiff =
+        (resolveHeroWinRate(a) ?? Number.POSITIVE_INFINITY) -
+        (resolveHeroWinRate(b) ?? Number.POSITIVE_INFINITY);
       if (winRateDiff !== 0) {
         return winRateDiff;
       }
@@ -240,36 +323,48 @@ export const summarizeDashboard = (heroData, windowMatches = []) => {
         return b.matches - a.matches;
       }
       return String(a.hero ?? '').localeCompare(String(b.hero ?? ''));
-    })[0];
+    })[0] ?? null;
+  const emptyHeroSummary = {
+    hero: '-',
+    heroAvatar: '',
+    matches: 0,
+    outcomeMatches: 0,
+    winRate: null,
+  };
+  const toHeroSummary = (hero) =>
+    hero
+      ? {
+          hero: hero.hero,
+          heroAvatar: hero.heroAvatar ?? '',
+          matches: hero.matches,
+          outcomeMatches:
+            toFiniteOrNull(hero.outcomeMatches) ??
+            toFiniteOrNull(hero.matches) ??
+            0,
+          winRate:
+            resolveHeroWinRate(hero) === null
+              ? null
+              : resolveHeroWinRate(hero).toFixed(1),
+        }
+      : emptyHeroSummary;
 
   return {
     totalMatches: totals.matches,
-    overallWinRate: toPercent(totals.wins, totals.matches),
-    avgKda: (totals.totalKa / Math.max(1, totals.totalDeaths)).toFixed(2),
+    overallWinRate:
+      totals.outcomeMatches > 0 ? toPercent(totals.wins, totals.outcomeMatches) : null,
+    avgKda:
+      totals.kdaMatches > 0
+        ? (totals.totalKa / Math.max(1, totals.totalDeaths)).toFixed(2)
+        : null,
     avgGpm: totals.gpmCount > 0 ? Math.round(totals.gpm / totals.gpmCount) : null,
     avgXpm: totals.xpmCount > 0 ? Math.round(totals.xpm / totals.xpmCount) : null,
     longestWinStreak: streaks.longestWinStreak,
     longestLossStreak: streaks.longestLossStreak,
     bestHero,
     worstHero,
-    mostPlayedHero: {
-      hero: mostPlayedHero.hero,
-      heroAvatar: mostPlayedHero.heroAvatar ?? '',
-      matches: mostPlayedHero.matches,
-      winRate: toPercent(mostPlayedHero.wins, mostPlayedHero.matches),
-    },
-    signatureHero: {
-      hero: signatureHero.hero,
-      heroAvatar: signatureHero.heroAvatar ?? '',
-      matches: signatureHero.matches,
-      winRate: toPercent(signatureHero.wins, signatureHero.matches),
-    },
-    antiSignatureHero: {
-      hero: antiSignatureHero.hero,
-      heroAvatar: antiSignatureHero.heroAvatar ?? '',
-      matches: antiSignatureHero.matches,
-      winRate: toPercent(antiSignatureHero.wins, antiSignatureHero.matches),
-    },
+    mostPlayedHero: toHeroSummary(mostPlayedHero),
+    signatureHero: toHeroSummary(signatureHero),
+    antiSignatureHero: toHeroSummary(antiSignatureHero),
   };
 };
 
@@ -302,6 +397,9 @@ export const summarizeSideWinRates = (matches) => {
   const safeMatches = Array.isArray(matches) ? matches : [];
   const totals = safeMatches.reduce(
     (acc, match) => {
+      if (match?.playerSlot == null || match.playerSlot === '') {
+        return acc;
+      }
       const playerSlot = Number(match?.playerSlot);
       if (!Number.isFinite(playerSlot) || (match?.result !== 'win' && match?.result !== 'loss')) {
         return acc;
@@ -336,37 +434,74 @@ export const summarizeRecentMatches = (matches) => {
   if (!matches.length) {
     return {
       total: 0,
+      ratedTotal: 0,
+      unknownResults: 0,
       wins: 0,
-      winRate: '0.0',
-      avgKda: '0.00',
+      winRate: null,
+      avgKda: null,
       avgGpm: null,
-      avgDurationMin: 0,
+      avgDurationMin: null,
     };
   }
 
   const totals = matches.reduce(
     (acc, match) => {
-      acc.wins += match.result === 'win' ? 1 : 0;
-      acc.kills += match.kills ?? 0;
-      acc.deaths += match.deaths ?? 0;
-      acc.assists += match.assists ?? 0;
+      if (match.result === 'win' || match.result === 'loss') {
+        acc.ratedTotal += 1;
+        acc.wins += match.result === 'win' ? 1 : 0;
+      } else {
+        acc.unknownResults += 1;
+      }
+      const kills = toFiniteOrNull(match.kills);
+      const deaths = toFiniteOrNull(match.deaths);
+      const assists = toFiniteOrNull(match.assists);
+      if (kills !== null && deaths !== null && assists !== null) {
+        acc.kills += kills;
+        acc.deaths += deaths;
+        acc.assists += assists;
+        acc.kdaMatches += 1;
+      }
       if (Number.isFinite(match.goldPerMin)) {
         acc.gpm += match.goldPerMin;
         acc.gpmCount += 1;
       }
-      acc.durationSec += match.durationSec ?? 0;
+      const durationSec = toFiniteOrNull(match.durationSec);
+      if (durationSec !== null && durationSec > 0) {
+        acc.durationSec += durationSec;
+        acc.durationMatches += 1;
+      }
       return acc;
     },
-    { wins: 0, kills: 0, deaths: 0, assists: 0, gpm: 0, gpmCount: 0, durationSec: 0 }
+    {
+      ratedTotal: 0,
+      unknownResults: 0,
+      wins: 0,
+      kills: 0,
+      deaths: 0,
+      assists: 0,
+      kdaMatches: 0,
+      gpm: 0,
+      gpmCount: 0,
+      durationSec: 0,
+      durationMatches: 0,
+    }
   );
 
   return {
     total: matches.length,
+    ratedTotal: totals.ratedTotal,
+    unknownResults: totals.unknownResults,
     wins: totals.wins,
-    winRate: toPercent(totals.wins, matches.length),
-    avgKda: ((totals.kills + totals.assists) / Math.max(1, totals.deaths)).toFixed(2),
+    winRate: totals.ratedTotal > 0 ? toPercent(totals.wins, totals.ratedTotal) : null,
+    avgKda:
+      totals.kdaMatches > 0
+        ? ((totals.kills + totals.assists) / Math.max(1, totals.deaths)).toFixed(2)
+        : null,
     avgGpm: totals.gpmCount > 0 ? Math.round(totals.gpm / totals.gpmCount) : null,
-    avgDurationMin: Math.round(totals.durationSec / matches.length / 60),
+    avgDurationMin:
+      totals.durationMatches > 0
+        ? Math.round(totals.durationSec / totals.durationMatches / 60)
+        : null,
   };
 };
 

@@ -1,3 +1,21 @@
+const formatOutcomeCoverageZh = ({ matches, outcomeMatches }) => {
+  const total = Math.max(0, Number(matches) || 0);
+  const known = Math.max(
+    0,
+    Math.min(total, Number.isFinite(Number(outcomeMatches)) ? Number(outcomeMatches) : total)
+  );
+  return known < total ? `${known}/${total} 场赛果可判定` : `${total} 场`;
+};
+
+const formatOutcomeCoverageEn = ({ matches, outcomeMatches }) => {
+  const total = Math.max(0, Number(matches) || 0);
+  const known = Math.max(
+    0,
+    Math.min(total, Number.isFinite(Number(outcomeMatches)) ? Number(outcomeMatches) : total)
+  );
+  return known < total ? `${known}/${total} outcomes known` : `${total} matches`;
+};
+
 const copy = {
   zh: {
     app: {
@@ -11,25 +29,29 @@ const copy = {
       },
     },
     query: {
-      accountPanelTitle: '账号',
-      accountModalTitle: '账号登录与切换',
-      accountSummaryLabel: '当前账号',
-      openAccountModal: '打开账号弹窗',
-      closeAccountModal: '关闭账号弹窗',
-      unknownNickname: '未命名账号',
-      accountIdLabel: 'Steam32',
-      accountIdPlaceholder: '例如：898754153',
+      accountPanelTitle: '玩家档案',
+      accountModalTitle: '玩家档案与切换',
+      accountSummaryLabel: '当前玩家',
+      openAccountModal: '打开玩家档案',
+      closeAccountModal: '关闭玩家档案',
+      unknownNickname: '未命名玩家',
+      accountIdLabel: 'Steam32 玩家 ID',
+      accountIdPlaceholder: '例如：123456789',
+      accountIdHint: 'Steam32 是公开玩家数字 ID，不需要 Steam 密码。',
+      localProfileHint: '玩家档案仅保存在当前浏览器。',
       steamLabel: 'Steam32',
-      submit: '开始分析',
+      submit: '分析玩家',
       loading: '分析中...',
       rangeAriaLabel: '时间窗口切换',
       day14: '14 天',
       day30: '30 天',
       day365: '365 天',
-      savedAccounts: (count, max) => `已登录账号 ${count}/${max}`,
-      savedAccountsHint: '点击快速切换',
-      savedAccountsAriaLabel: '已保存账号',
-      removeSavedAccount: '移除账号',
+      savedAccounts: (count, max) => `已保存玩家 ${count}/${max}`,
+      savedAccountsHint: '选择玩家可快速切换',
+      savedAccountsAriaLabel: '已保存玩家',
+      switchSavedAccount: (name) => `切换到 ${name}`,
+      removeSavedAccount: '移除玩家',
+      removeSavedAccountNamed: (name) => `移除 ${name}`,
     },
     tabs: {
       ariaLabel: '分析模块',
@@ -42,6 +64,14 @@ const copy = {
       allHeroes: '全英雄',
       allItems: '全物品',
     },
+    navigation: {
+      ariaLabel: '工作台主导航',
+      sectionAriaLabel: '当前分组页面',
+      home: '首页',
+      matches: '比赛',
+      improve: '提升',
+      library: '资料库',
+    },
     catalog: {
       ariaLabel: '全量英雄与物品目录',
       heroesTitle: '全英雄目录',
@@ -50,10 +80,17 @@ const copy = {
       itemsTitle: '全物品目录',
       itemsTag: (count) => `共 ${count} 件`,
       itemsEmpty: '暂无物品目录数据。',
+      loading: '正在加载目录数据…',
       unknownId: '未知 ID',
       heroDescription: ({ attribute }) => `${attribute}英雄。`,
       itemDescription: ({ id, key }) =>
         `物品编号 ${Number.isFinite(id) ? `#${id}` : '未知'}，内部代号：${key}。`,
+      searchLabel: '搜索目录',
+      searchPlaceholder: '按中英文名称、ID 或类型搜索',
+      clearSearch: '清除搜索',
+      resultCount: (count) => `找到 ${count} 项`,
+      noSearchResults: '没有符合搜索条件的条目。',
+      loadMore: ({ visible, total }) => `加载更多（已显示 ${visible}/${total}）`,
       heroDetails: {
         nameZh: '中文名',
         nameEn: '英文名',
@@ -92,9 +129,89 @@ const copy = {
           ? `当前玩家：${playerName}。最近 ${days} 天暂无公开比赛，最近一场时间：${latestMatchDate}。`
           : `当前玩家：${playerName}。最近 ${days} 天暂无公开比赛。`,
     },
+    resourceStatus: {
+      loadingTitle: '正在读取公开比赛数据',
+      loadingBody: '正在从 OpenDota 获取玩家资料与比赛记录。',
+      errorTitle: '真实数据暂时不可用',
+      errorBody: '无法完成本次查询。你可以重试，或先浏览明确标注的示例数据。',
+      retry: '重试',
+      retryAfter: (seconds) => `${seconds} 秒后重试`,
+      changePlayer: '更换玩家',
+      viewSample: '查看示例数据',
+      sampleTitle: '示例数据',
+      sampleBody: '静态演示样本，仅用于体验功能，不代表当前玩家。',
+      staleTitle: '显示上一次成功结果',
+      partialTitle: '部分数据可用',
+    },
+    provenance: {
+      liveTitle: 'OpenDota 公开数据',
+      updatedAt: (date) => `更新于 ${date}`,
+      windowCoverage: ({ includedMatches, retrievedMatches }) =>
+        `窗口内纳入 ${includedMatches} 场，共取回 ${retrievedMatches} 场公开记录`,
+      complete: '数据完整',
+      incomplete: '部分数据',
+    },
+    coach: {
+      title: '可执行洞察',
+      tag: (days) => `最近 ${days} 天`,
+      evidenceLabel: '依据',
+      sampleLabel: (count) => `${count} 场样本`,
+      rulesetLabel: '规则版本',
+      confidence: {
+        low: '低置信度',
+        medium: '中置信度',
+        high: '高置信度',
+      },
+      formulaLabel: (version) => `规则版本 ${version}`,
+      evidenceMatchesLabel: '证据场次',
+      evidenceUnknownHero: '比赛记录',
+      evidenceUnavailable: '比赛信息暂不可用',
+      evidenceDateUnknown: '时间未知',
+      evidenceKdaLabel: 'K/D/A',
+      evidenceResult: {
+        win: '胜',
+        loss: '负',
+        unknown: '未知',
+      },
+      evidenceMatchAriaLabel: ({ hero, result, kda, date }) =>
+        `查看 ${hero}，${result}，K/D/A ${kda}，${date} 的证据场次`,
+      noData: '当前样本不足，暂时无法生成可靠建议。',
+      insights: {
+        momentum: {
+          title: '近期状态',
+          body: ({ recentWinRate, previousWinRate, delta }) =>
+            `最近一组胜率 ${recentWinRate}%，上一组 ${previousWinRate}%，变化 ${delta >= 0 ? '+' : ''}${delta} 个百分点。`,
+          action: ({ delta }) =>
+            delta >= 5
+              ? '延续近期打法，并用证据场次确认哪些选择值得保留。'
+              : delta <= -5
+                ? '优先复盘证据场次中的前 10 分钟，找出重复出现的失误。'
+                : '近期表现基本稳定，可用下一组比赛继续验证趋势。',
+        },
+        survival: {
+          title: '生存质量',
+          body: ({ averageDeaths }) => `当前样本场均死亡 ${averageDeaths} 次。`,
+          action: ({ targetDeaths }) =>
+            targetDeaths
+              ? `下一阶段先把场均死亡控制在 ${targetDeaths} 次以内，再比较胜率变化。`
+              : '死亡数处于可控区间，继续关注关键团战中的站位与撤退时机。',
+        },
+        heroFocus: {
+          title: '英雄聚焦',
+          body: ({ hero, matches, winRate }) => `${hero} 在 ${matches} 场样本中的胜率为 ${winRate}%。`,
+          action: ({ hero }) => `优先用 ${hero} 建立稳定打法，同时保留一名相近定位的备选英雄。`,
+        },
+      },
+    },
     overview: {
       title: '总览摘要',
       tag: (days) => `最近 ${days} 天`,
+      performanceSnapshotTitle: '核心表现',
+      heroFocusTitle: '英雄聚焦',
+      heroFocusCta: '查看完整英雄池',
+      recentMatchesTitle: '最近比赛',
+      moreStatsTitle: '展开更多表现与关键场次',
+      rankHeader: '排名',
       highlightsTitle: '关键结论',
       extremeMatchesTitle: '关键场次（当前窗口）',
       extremeMetricHeader: '指标',
@@ -119,7 +236,7 @@ const copy = {
       totalMatches: '总比赛场次',
       totalMatchesSubtext: (days) => `来自最近 ${days} 天的统计样本`,
       overallWinRate: '综合胜率',
-      overallWinRateSubtext: '按总胜场/总场次直接计算',
+      overallWinRateSubtext: '仅按胜负结果可判定的公开对局计算',
       sideWinRate: '天辉/夜魇胜率',
       sideWinRateSubtext: ({ radiantMatches, direMatches }) => `天辉 ${radiantMatches} 场 / 夜魇 ${direMatches} 场`,
       radiantLabel: '天辉',
@@ -134,13 +251,25 @@ const copy = {
       bestHero: '最高价值英雄',
       bestHeroSubtext: ({ impact, avgGpm }) => `影响力 ${impact} / 平均 GPM ${avgGpm}`,
       worstHero: '最菜英雄',
-      worstHeroSubtext: ({ matches, winRate }) => `至少 2 场样本里最低胜率 · ${matches} 场 / ${winRate}%`,
+      worstHeroSubtext: ({ matches, outcomeMatches, winRate }) =>
+        winRate == null
+          ? `${formatOutcomeCoverageZh({ matches, outcomeMatches })} / 胜负结果不足`
+          : `至少 2 场赛果可判定样本里最低胜率 · ${formatOutcomeCoverageZh({ matches, outcomeMatches })} / ${winRate}%`,
       mostPlayedHero: '最常玩英雄',
-      mostPlayedHeroSubtext: ({ matches, winRate }) => `${matches} 场 / 胜率 ${winRate}%`,
+      mostPlayedHeroSubtext: ({ matches, outcomeMatches, winRate }) =>
+        winRate == null
+          ? `${formatOutcomeCoverageZh({ matches, outcomeMatches })} / 胜负结果不可用`
+          : `${formatOutcomeCoverageZh({ matches, outcomeMatches })} / 胜率 ${winRate}%`,
       signatureHero: '绝活英雄',
-      signatureHeroSubtext: ({ matches, winRate }) => `出场前10%英雄中胜率最高 · ${matches} 场 / ${winRate}%`,
+      signatureHeroSubtext: ({ matches, outcomeMatches, winRate }) =>
+        winRate == null
+          ? `${formatOutcomeCoverageZh({ matches, outcomeMatches })} / 胜负结果不足`
+          : `出场前10%英雄中胜率最高 · ${formatOutcomeCoverageZh({ matches, outcomeMatches })} / ${winRate}%`,
       antiSignatureHero: '又菜又爱玩',
-      antiSignatureHeroSubtext: ({ matches, winRate }) => `出场前10%英雄中胜率最低 · ${matches} 场 / ${winRate}%`,
+      antiSignatureHeroSubtext: ({ matches, outcomeMatches, winRate }) =>
+        winRate == null
+          ? `${formatOutcomeCoverageZh({ matches, outcomeMatches })} / 胜负结果不足`
+          : `出场前10%英雄中胜率最低 · ${formatOutcomeCoverageZh({ matches, outcomeMatches })} / ${winRate}%`,
       longestWinStreak: '最长连胜',
       longestWinStreakSubtext: (days) => `最近 ${days} 天内最高连续胜场`,
       longestLossStreak: '最长连败',
@@ -149,6 +278,8 @@ const copy = {
       rampageCountSubtext: (days) => `最近 ${days} 天内触发`,
       godlikeCount: '超神次数',
       godlikeCountSubtext: (days) => `最近 ${days} 天内触发`,
+      achievementCoverageSubtext: ({ availableMatches, totalMatches }) =>
+        `仅已解析 ${availableMatches}/${totalMatches} 场，合计为已知下限`,
       mostPlayedTeammate: '最多同队队友',
       mostPlayedTeammateSubtext: ({ matches }) => `历史公开对局中同队 ${matches} 场`,
       bestWinRateTeammate: '最强队友',
@@ -189,10 +320,26 @@ const copy = {
       detailPeak: (value) => `峰值：${value}%`,
       detailBottom: (value) => `低点：${value}%`,
       detailEmpty: '当前没有足够数据生成趋势解读。',
+      summary: ({ first, latest, change, min, max }) =>
+        `起始值 ${first}，最新值 ${latest}，变化 ${change >= 0 ? '+' : ''}${change}，区间 ${min}–${max}。`,
+      hourlySummary: ({ totalMatches, peakHour, peakCount, peakRatio }) =>
+        `共 ${totalMatches} 场；${peakHour}:00 最活跃，共 ${peakCount} 场，占 ${peakRatio}%。`,
+      dataTableLabel: '查看精确数据',
+      dataTableDate: '日期',
+      dataTableValue: '数值',
+      dataTableSample: '有效样本',
+      dataGap: '缺口',
+      gapSummary: (count) => `其中 ${count} 个时间点因样本不足留空。`,
+      sampleCount: ({ sampleCount, windowSampleCount }) =>
+        windowSampleCount ? `${sampleCount}/${windowSampleCount} 场` : `${sampleCount} 场`,
+      dataTableHour: '小时',
+      dataTableMatches: '场次',
+      dataTableRatio: '占比',
     },
     rank: {
-      title: '比赛段位分布',
+      title: '局内公开玩家平均段位分布',
       tag: (days) => `最近 ${days} 天`,
+      coverage: ({ availableMatches, totalMatches }) => `已覆盖 ${availableMatches}/${totalMatches} 场`,
       noDataText: '当前公开数据没有段位信息。',
     },
     role: {
@@ -203,13 +350,21 @@ const copy = {
     table: {
       title: '英雄表现对比',
       tag: '支持排序/筛选/导出',
-      openHint: '点击英雄行展开该英雄在当前窗口的比赛',
+      openHint: '使用英雄名称按钮展开当前窗口的比赛',
       heroMatchesEmpty: '该英雄暂无可展示的比赛明细。',
+      unknownOutcomeMatches: (count) => `${count} 场结果未知，胜率未计入`,
+      tableAriaLabel: '英雄表现数据表',
+      heroMatchesTableAriaLabel: (hero) => `${hero}比赛明细`,
+      expandHero: (hero) => `展开 ${hero} 比赛明细`,
+      collapseHero: (hero) => `收起 ${hero} 比赛明细`,
+      sortColumn: (column) => `按${column}排序`,
       headers: {
         hero: '英雄',
         attribute: '属性',
         role: '定位',
         matches: '场次',
+        knownOutcomes: '赛果可判定场次',
+        unknownOutcomes: '赛果未知场次',
         winRate: '胜率',
         winLoss: '胜/负',
         avgKda: '平均 KDA',
@@ -246,9 +401,13 @@ const copy = {
     },
     teammates: {
       title: '队友协同',
-      tag: () => 'OpenDota 全历史样本',
-      openHint: '按历史同队场次排序',
+      tag: () => '公开历史协同数据',
+      openHint: '来自 OpenDota 公开历史 peers 统计',
       noDataText: '暂无可用队友数据。',
+      retry: '重试',
+      retryAfter: (seconds) => `${seconds} 秒后重试`,
+      tableAriaLabel: '队友协同数据表',
+      sortColumn: (column) => `按${column}排序`,
       controls: {
         sortLabel: '排序字段',
         sortDirectionLabel: '排序方向',
@@ -278,7 +437,7 @@ const copy = {
         winRate: '胜率',
         record: '战绩',
         gpmXpm: 'GPM / XPM',
-        againstWinRate: '对位胜率',
+        againstWinRate: '对位胜率 / 战绩',
         lastPlayed: '最近遇到时间',
       },
       againstNoData: '-',
@@ -292,15 +451,22 @@ const copy = {
       prevPage: '上一页',
       nextPage: '下一页',
       noDataText: '暂无可用比赛数据。',
-      openHint: '点击任意一行查看详情',
+      loadingText: '正在更新比赛数据…',
+      retry: '重试',
+      openHint: '选择“查看”打开比赛详情',
+      openMatch: '查看',
+      openMatchAriaLabel: ({ hero, result, date }) => `查看 ${date} ${hero} ${result}的比赛详情`,
+      tableAriaLabel: '最近比赛数据表',
       timeTags: {
         today: '今天',
         yesterday: '昨天',
+        within3Days: '3天内',
         within7Days: '7天内',
         within30Days: '30天内',
       },
       summary: {
         winRate: '胜率',
+        outcomeCoverage: ({ known, total }) => `赛果可判定 ${known}/${total}`,
         avgKda: '平均 KDA',
         avgGpm: '平均 GPM',
         avgDuration: '平均时长',
@@ -315,18 +481,37 @@ const copy = {
         heroDamage: '伤害',
         duration: '时长',
         laneRole: '分路',
-        rank: '段位',
+        rank: '局内平均段位 / 技能组',
         matchId: '比赛 ID',
       },
+      rankKinds: {
+        matchAverageRank: '局内平均段位',
+        skillBracket: '技能组',
+        playerRank: '玩家段位',
+        unknown: '段位来源未知',
+      },
+      rankAriaLabel: ({ value, kind }) => `${kind}：${value}`,
       result: {
         win: '胜利',
         loss: '失败',
+        unknown: '未知',
       },
       detail: {
         title: '比赛详情',
         loading: '正在加载比赛详情...',
         loadFailed: '比赛详情加载失败，请稍后重试。',
+        retry: '重试',
+        retryAfter: (seconds) => `${seconds} 秒后重试`,
         closeAriaLabel: '关闭比赛详情',
+        partialTitle: '部分详情不可用',
+        partialBody: '以下字段使用回退值，其余比赛数据仍可浏览。',
+        abilityFallback: '技能名称不可用，当前显示技能数字 ID。',
+        profileFallback: '部分玩家公开资料不可用，当前显示回退名称。',
+        ownership: {
+          notOwned: '未拥有',
+          ownedTimingUnknown: '已拥有 · 时间未知',
+        },
+        scoreboardAriaLabel: (team) => `${team}玩家数据表`,
         sections: {
           overview: '基础概览',
           core: '个人核心数据',
@@ -340,7 +525,7 @@ const copy = {
           gameMode: '模式',
           queueType: '队列',
           laneRole: '分路',
-          rank: '段位',
+          rank: '玩家段位',
           kda: 'K/D/A (KDA)',
           gpmXpm: 'GPM / XPM',
           killParticipation: '参战率',
@@ -370,16 +555,18 @@ const copy = {
           playerItems: '装备',
           playerDamage: '英雄伤害 / 治疗',
           playerDamageShare: '伤害占比',
-          playerRank: '段位',
-          currentPlayer: '当前玩家',
+          playerRank: '玩家段位',
+          currentPlayer: '你',
         },
         result: {
           win: '胜利',
           loss: '失败',
+          unknown: '未知',
         },
         tags: {
           rampage: '暴走',
           godlike: '超神',
+          unavailable: '数据不可用',
         },
         units: {
           percent: '%',
@@ -397,7 +584,7 @@ const copy = {
     errors: {
       steamNumeric: 'Steam32 需要输入纯数字 ID。',
       steamInvalid: 'Steam32 格式不正确，请检查输入。',
-      accountLimit: (max) => `最多同时登录 ${max} 个账号，请先移除一个账号。`,
+      accountLimit: (max) => `最多保存 ${max} 个玩家，请先移除一个。`,
       fetchFailed: '拉取 OpenDota 数据失败，请稍后重试。',
     },
     misc: {
@@ -417,25 +604,29 @@ const copy = {
       },
     },
     query: {
-      accountPanelTitle: 'Accounts',
-      accountModalTitle: 'Sign In & Switch Accounts',
-      accountSummaryLabel: 'Current Account',
-      openAccountModal: 'Open account modal',
-      closeAccountModal: 'Close account modal',
-      unknownNickname: 'Unnamed Account',
-      accountIdLabel: 'Steam32',
-      accountIdPlaceholder: 'Example: 898754153',
+      accountPanelTitle: 'Player Profiles',
+      accountModalTitle: 'Player Profiles',
+      accountSummaryLabel: 'Current Player',
+      openAccountModal: 'Open player profiles',
+      closeAccountModal: 'Close player profiles',
+      unknownNickname: 'Unnamed Player',
+      accountIdLabel: 'Steam32 Player ID',
+      accountIdPlaceholder: 'Example: 123456789',
+      accountIdHint: 'Steam32 is a public numeric player ID. No Steam password is needed.',
+      localProfileHint: 'Player profiles are stored only in this browser.',
       steamLabel: 'Steam32',
-      submit: 'Analyze',
+      submit: 'Analyze Player',
       loading: 'Analyzing...',
       rangeAriaLabel: 'Time window switch',
       day14: '14 Days',
       day30: '30 Days',
       day365: '365 Days',
-      savedAccounts: (count, max) => `Signed-in accounts ${count}/${max}`,
-      savedAccountsHint: 'Click to switch quickly',
-      savedAccountsAriaLabel: 'Saved accounts',
-      removeSavedAccount: 'Remove account',
+      savedAccounts: (count, max) => `Saved players ${count}/${max}`,
+      savedAccountsHint: 'Choose a player to switch quickly',
+      savedAccountsAriaLabel: 'Saved players',
+      switchSavedAccount: (name) => `Switch to ${name}`,
+      removeSavedAccount: 'Remove player',
+      removeSavedAccountNamed: (name) => `Remove ${name}`,
     },
     tabs: {
       ariaLabel: 'Analytics tabs',
@@ -448,6 +639,14 @@ const copy = {
       allHeroes: 'All Heroes',
       allItems: 'All Items',
     },
+    navigation: {
+      ariaLabel: 'Workspace primary navigation',
+      sectionAriaLabel: 'Current section pages',
+      home: 'Home',
+      matches: 'Matches',
+      improve: 'Improve',
+      library: 'Library',
+    },
     catalog: {
       ariaLabel: 'Global heroes and items catalog',
       heroesTitle: 'All Heroes',
@@ -456,9 +655,16 @@ const copy = {
       itemsTitle: 'All Items',
       itemsTag: (count) => `${count} total`,
       itemsEmpty: 'No item catalog data.',
+      loading: 'Loading catalog data…',
       unknownId: 'Unknown ID',
       heroDescription: ({ attribute }) => `${attribute} hero.`,
       itemDescription: ({ id, key }) => `Item ID ${Number.isFinite(id) ? `#${id}` : 'unknown'}, internal key: ${key}.`,
+      searchLabel: 'Search catalog',
+      searchPlaceholder: 'Search by Chinese or English name, ID, or type',
+      clearSearch: 'Clear search',
+      resultCount: (count) => `${count} results`,
+      noSearchResults: 'No items match this search.',
+      loadMore: ({ visible, total }) => `Show more (${visible}/${total} shown)`,
       heroDetails: {
         nameZh: 'Chinese Name',
         nameEn: 'English Name',
@@ -497,9 +703,89 @@ const copy = {
           ? `Player: ${playerName}. No public matches in the last ${days} days. Latest match: ${latestMatchDate}.`
           : `Player: ${playerName}. No public matches in the last ${days} days.`,
     },
+    resourceStatus: {
+      loadingTitle: 'Loading public match data',
+      loadingBody: 'Fetching the player profile and match history from OpenDota.',
+      errorTitle: 'Live data is temporarily unavailable',
+      errorBody: 'This query could not be completed. Retry, or browse the clearly labeled sample data.',
+      retry: 'Retry',
+      retryAfter: (seconds) => `Retry in ${seconds}s`,
+      changePlayer: 'Change Player',
+      viewSample: 'View Sample Data',
+      sampleTitle: 'Sample Data',
+      sampleBody: 'Static demo sample for exploring features; it does not represent the current player.',
+      staleTitle: 'Showing the Last Successful Result',
+      partialTitle: 'Partial Data Available',
+    },
+    provenance: {
+      liveTitle: 'OpenDota Public Data',
+      updatedAt: (date) => `Updated ${date}`,
+      windowCoverage: ({ includedMatches, retrievedMatches }) =>
+        `${includedMatches} matches included in the window from ${retrievedMatches} public records retrieved`,
+      complete: 'Complete',
+      incomplete: 'Partial',
+    },
+    coach: {
+      title: 'Actionable Insights',
+      tag: (days) => `Last ${days} Days`,
+      evidenceLabel: 'Evidence',
+      sampleLabel: (count) => `${count}-match sample`,
+      rulesetLabel: 'Ruleset',
+      confidence: {
+        low: 'Low confidence',
+        medium: 'Medium confidence',
+        high: 'High confidence',
+      },
+      formulaLabel: (version) => `Ruleset ${version}`,
+      evidenceMatchesLabel: 'Evidence matches',
+      evidenceUnknownHero: 'Match record',
+      evidenceUnavailable: 'Match details unavailable',
+      evidenceDateUnknown: 'Time unknown',
+      evidenceKdaLabel: 'K/D/A',
+      evidenceResult: {
+        win: 'Win',
+        loss: 'Loss',
+        unknown: 'Unknown',
+      },
+      evidenceMatchAriaLabel: ({ hero, result, kda, date }) =>
+        `View the ${hero} evidence match: ${result}, K/D/A ${kda}, ${date}`,
+      noData: 'The current sample is too small to produce a reliable recommendation.',
+      insights: {
+        momentum: {
+          title: 'Recent Momentum',
+          body: ({ recentWinRate, previousWinRate, delta }) =>
+            `The recent group is at ${recentWinRate}% versus ${previousWinRate}% previously, a ${delta >= 0 ? '+' : ''}${delta}-point change.`,
+          action: ({ delta }) =>
+            delta >= 5
+              ? 'Keep the recent approach and use the evidence matches to identify which decisions are worth repeating.'
+              : delta <= -5
+                ? 'Review the first 10 minutes of the evidence matches and look for mistakes that repeat.'
+                : 'Results are broadly stable; use the next group of matches to keep validating the trend.',
+        },
+        survival: {
+          title: 'Survival Quality',
+          body: ({ averageDeaths }) => `The current sample averages ${averageDeaths} deaths per match.`,
+          action: ({ targetDeaths }) =>
+            targetDeaths
+              ? `Aim to keep average deaths below ${targetDeaths}, then compare the resulting win rate.`
+              : 'Deaths are within a controlled range; keep focusing on positioning and disengage timing in key fights.',
+        },
+        heroFocus: {
+          title: 'Hero Focus',
+          body: ({ hero, matches, winRate }) => `${hero} has a ${winRate}% win rate across ${matches} sampled matches.`,
+          action: ({ hero }) => `Use ${hero} to build a repeatable game plan and keep one similar-role hero as a backup.`,
+        },
+      },
+    },
     overview: {
       title: 'Overview Snapshot',
       tag: (days) => `Last ${days} Days`,
+      performanceSnapshotTitle: 'Core Performance',
+      heroFocusTitle: 'Hero Focus',
+      heroFocusCta: 'View Full Hero Pool',
+      recentMatchesTitle: 'Recent Matches',
+      moreStatsTitle: 'Show More Performance & Key Matches',
+      rankHeader: 'Rank',
       highlightsTitle: 'Key Insights',
       extremeMatchesTitle: 'Key Matches (Current Window)',
       extremeMetricHeader: 'Metric',
@@ -525,7 +811,7 @@ const copy = {
       totalMatches: 'Total Matches',
       totalMatchesSubtext: (days) => `Sample from the last ${days} days`,
       overallWinRate: 'Overall Win Rate',
-      overallWinRateSubtext: 'Calculated directly as total wins / total matches',
+      overallWinRateSubtext: 'Calculated only from public matches with a known outcome',
       sideWinRate: 'Radiant/Dire Win Rate',
       sideWinRateSubtext: ({ radiantMatches, direMatches }) =>
         `Radiant ${radiantMatches} matches / Dire ${direMatches} matches`,
@@ -541,15 +827,25 @@ const copy = {
       bestHero: 'Top Value Hero',
       bestHeroSubtext: ({ impact, avgGpm }) => `Impact ${impact} / Avg GPM ${avgGpm}`,
       worstHero: 'Worst Hero',
-      worstHeroSubtext: ({ matches, winRate }) => `Lowest win rate among heroes with at least 2 matches · ${matches} matches / ${winRate}%`,
+      worstHeroSubtext: ({ matches, outcomeMatches, winRate }) =>
+        winRate == null
+          ? `${formatOutcomeCoverageEn({ matches, outcomeMatches })} / Insufficient outcomes`
+          : `Lowest win rate with at least 2 known outcomes · ${formatOutcomeCoverageEn({ matches, outcomeMatches })} / ${winRate}%`,
       mostPlayedHero: 'Most Played Hero',
-      mostPlayedHeroSubtext: ({ matches, winRate }) => `${matches} matches / Win rate ${winRate}%`,
+      mostPlayedHeroSubtext: ({ matches, outcomeMatches, winRate }) =>
+        winRate == null
+          ? `${formatOutcomeCoverageEn({ matches, outcomeMatches })} / Outcome unavailable`
+          : `${formatOutcomeCoverageEn({ matches, outcomeMatches })} / Win rate ${winRate}%`,
       signatureHero: 'Signature Hero',
-      signatureHeroSubtext: ({ matches, winRate }) =>
-        `Highest win rate among top 10% most-played heroes · ${matches} matches / ${winRate}%`,
+      signatureHeroSubtext: ({ matches, outcomeMatches, winRate }) =>
+        winRate == null
+          ? `${formatOutcomeCoverageEn({ matches, outcomeMatches })} / Insufficient outcomes`
+          : `Highest win rate among top 10% most-played heroes · ${formatOutcomeCoverageEn({ matches, outcomeMatches })} / ${winRate}%`,
       antiSignatureHero: 'Most Played, Lowest Win Rate',
-      antiSignatureHeroSubtext: ({ matches, winRate }) =>
-        `Lowest win rate among top 10% most-played heroes · ${matches} matches / ${winRate}%`,
+      antiSignatureHeroSubtext: ({ matches, outcomeMatches, winRate }) =>
+        winRate == null
+          ? `${formatOutcomeCoverageEn({ matches, outcomeMatches })} / Insufficient outcomes`
+          : `Lowest win rate among top 10% most-played heroes · ${formatOutcomeCoverageEn({ matches, outcomeMatches })} / ${winRate}%`,
       longestWinStreak: 'Longest Win Streak',
       longestWinStreakSubtext: (days) => `Max consecutive wins in the last ${days} days`,
       longestLossStreak: 'Longest Loss Streak',
@@ -558,6 +854,8 @@ const copy = {
       rampageCountSubtext: (days) => `Triggered in the last ${days} days`,
       godlikeCount: 'Godlikes',
       godlikeCountSubtext: (days) => `Triggered in the last ${days} days`,
+      achievementCoverageSubtext: ({ availableMatches, totalMatches }) =>
+        `Only ${availableMatches}/${totalMatches} matches were parsed; this total is a known lower bound`,
       mostPlayedTeammate: 'Most-Played Teammate',
       mostPlayedTeammateSubtext: ({ matches }) => `${matches} shared matches in public history`,
       bestWinRateTeammate: 'Best Teammate',
@@ -600,10 +898,26 @@ const copy = {
       detailPeak: (value) => `Peak: ${value}%`,
       detailBottom: (value) => `Bottom: ${value}%`,
       detailEmpty: 'Not enough data to generate trend summary.',
+      summary: ({ first, latest, change, min, max }) =>
+        `Started at ${first}, latest ${latest}, change ${change >= 0 ? '+' : ''}${change}, range ${min}–${max}.`,
+      hourlySummary: ({ totalMatches, peakHour, peakCount, peakRatio }) =>
+        `${totalMatches} matches total; ${peakHour}:00 was most active with ${peakCount} matches (${peakRatio}%).`,
+      dataTableLabel: 'View exact data',
+      dataTableDate: 'Date',
+      dataTableValue: 'Value',
+      dataTableSample: 'Valid Sample',
+      dataGap: 'Gap',
+      gapSummary: (count) => `${count} time points are left blank because the sample is insufficient.`,
+      sampleCount: ({ sampleCount, windowSampleCount }) =>
+        windowSampleCount ? `${sampleCount}/${windowSampleCount} matches` : `${sampleCount} matches`,
+      dataTableHour: 'Hour',
+      dataTableMatches: 'Matches',
+      dataTableRatio: 'Share',
     },
     rank: {
-      title: 'Rank Distribution',
+      title: 'Match Average Rank Distribution',
       tag: (days) => `Last ${days} Days`,
+      coverage: ({ availableMatches, totalMatches }) => `Coverage: ${availableMatches}/${totalMatches} matches`,
       noDataText: 'No public rank data in this time window.',
     },
     role: {
@@ -614,13 +928,21 @@ const copy = {
     table: {
       title: 'Hero Performance Comparison',
       tag: 'Sort / Filter / Export',
-      openHint: 'Click a hero row to expand this hero matches in the current window',
+      openHint: 'Use the hero name button to expand matches in the current window',
       heroMatchesEmpty: 'No match breakdown is available for this hero.',
+      unknownOutcomeMatches: (count) => `${count} matches have unknown outcomes and are excluded from win rate`,
+      tableAriaLabel: 'Hero performance data table',
+      heroMatchesTableAriaLabel: (hero) => `${hero} match details`,
+      expandHero: (hero) => `Expand ${hero} match details`,
+      collapseHero: (hero) => `Collapse ${hero} match details`,
+      sortColumn: (column) => `Sort by ${column}`,
       headers: {
         hero: 'Hero',
         attribute: 'Attribute',
         role: 'Role',
         matches: 'Matches',
+        knownOutcomes: 'Known Outcomes',
+        unknownOutcomes: 'Unknown Outcomes',
         winRate: 'Win Rate',
         winLoss: 'W / L',
         avgKda: 'Avg KDA',
@@ -657,9 +979,13 @@ const copy = {
     },
     teammates: {
       title: 'Teammate Synergy',
-      tag: () => 'OpenDota Lifetime Sample',
-      openHint: 'Sorted by lifetime shared matches',
+      tag: () => 'Public-History Peer Stats',
+      openHint: 'From OpenDota public-history peers data',
       noDataText: 'No teammate data available.',
+      retry: 'Retry',
+      retryAfter: (seconds) => `Retry in ${seconds}s`,
+      tableAriaLabel: 'Teammate synergy data table',
+      sortColumn: (column) => `Sort by ${column}`,
       controls: {
         sortLabel: 'Sort by',
         sortDirectionLabel: 'Direction',
@@ -689,7 +1015,7 @@ const copy = {
         winRate: 'Shared Win Rate',
         record: 'Shared Record',
         gpmXpm: 'Shared GPM / XPM',
-        againstWinRate: 'Vs Win Rate',
+        againstWinRate: 'Vs Win Rate / Record',
         lastPlayed: 'Last Encounter Time',
       },
       againstNoData: '-',
@@ -704,15 +1030,22 @@ const copy = {
       prevPage: 'Previous',
       nextPage: 'Next',
       noDataText: 'No recent match data available.',
-      openHint: 'Click any row to view details',
+      loadingText: 'Updating match data…',
+      retry: 'Retry',
+      openHint: 'Choose View to open match details',
+      openMatch: 'View',
+      openMatchAriaLabel: ({ hero, result, date }) => `View details for ${hero}, ${result}, ${date}`,
+      tableAriaLabel: 'Recent match data table',
       timeTags: {
         today: 'Today',
         yesterday: 'Yesterday',
+        within3Days: 'Within 3 Days',
         within7Days: 'Within 7 Days',
         within30Days: 'Within 30 Days',
       },
       summary: {
         winRate: 'Win Rate',
+        outcomeCoverage: ({ known, total }) => `Known outcomes ${known}/${total}`,
         avgKda: 'Average KDA',
         avgGpm: 'Average GPM',
         avgDuration: 'Average Duration',
@@ -727,18 +1060,37 @@ const copy = {
         heroDamage: 'Damage',
         duration: 'Duration',
         laneRole: 'Lane',
-        rank: 'Rank',
+        rank: 'Match Avg Rank / Skill Bracket',
         matchId: 'Match ID',
       },
+      rankKinds: {
+        matchAverageRank: 'Match average rank',
+        skillBracket: 'Skill bracket',
+        playerRank: 'Player rank',
+        unknown: 'Unknown rank source',
+      },
+      rankAriaLabel: ({ value, kind }) => `${kind}: ${value}`,
       result: {
         win: 'Win',
         loss: 'Loss',
+        unknown: 'Unknown',
       },
       detail: {
         title: 'Match Detail',
         loading: 'Loading match detail...',
         loadFailed: 'Failed to load match detail. Please try again later.',
+        retry: 'Retry',
+        retryAfter: (seconds) => `Retry in ${seconds}s`,
         closeAriaLabel: 'Close match detail',
+        partialTitle: 'Some Details Are Unavailable',
+        partialBody: 'Fallback values are shown below; the remaining match data is still available.',
+        abilityFallback: 'Ability names are unavailable; numeric ability IDs are shown.',
+        profileFallback: 'Some public player profiles are unavailable; fallback labels are shown.',
+        ownership: {
+          notOwned: 'Not owned',
+          ownedTimingUnknown: 'Owned · timing unknown',
+        },
+        scoreboardAriaLabel: (team) => `${team} player data table`,
         sections: {
           overview: 'Overview',
           core: 'Core Stats',
@@ -752,7 +1104,7 @@ const copy = {
           gameMode: 'Mode',
           queueType: 'Queue',
           laneRole: 'Lane',
-          rank: 'Rank',
+          rank: 'Player Rank',
           kda: 'K/D/A (KDA)',
           gpmXpm: 'GPM / XPM',
           killParticipation: 'Kill Participation',
@@ -782,16 +1134,18 @@ const copy = {
           playerItems: 'Items',
           playerDamage: 'Hero Damage / Healing',
           playerDamageShare: 'Damage Share',
-          playerRank: 'Rank',
-          currentPlayer: 'Current Player',
+          playerRank: 'Player Rank',
+          currentPlayer: 'You',
         },
         result: {
           win: 'Win',
           loss: 'Loss',
+          unknown: 'Unknown',
         },
         tags: {
           rampage: 'Rampage',
           godlike: 'Godlike',
+          unavailable: 'Data unavailable',
         },
         units: {
           percent: '%',
@@ -809,7 +1163,7 @@ const copy = {
     errors: {
       steamNumeric: 'Steam32 must be digits only.',
       steamInvalid: 'Invalid Steam32 format.',
-      accountLimit: (max) => `You can sign in up to ${max} accounts. Remove one first.`,
+      accountLimit: (max) => `You can save up to ${max} players. Remove one first.`,
       fetchFailed: 'Failed to fetch OpenDota data. Please try again later.',
     },
     misc: {
