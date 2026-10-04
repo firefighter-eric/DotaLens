@@ -108,6 +108,7 @@ function AccountModal({
           <p id={inputHintId} className="field-hint">
             {effectiveCopy.accountIdHint}
           </p>
+          {effectiveCopy.accountIdHelp ? <details className="account-id-help"><summary>{effectiveCopy.accountIdHelpTitle}</summary><p>{effectiveCopy.accountIdHelp}</p></details> : null}
           <div className="query-controls">
             <input
               ref={inputRef}
@@ -165,7 +166,7 @@ function AccountModal({
                   >
                     <span className="saved-account-main">
                       {account.avatar ? (
-                        <img src={account.avatar} alt="" className="account-avatar account-avatar--saved" loading="lazy" />
+                        <img referrerPolicy="no-referrer" src={account.avatar} alt="" className="account-avatar account-avatar--saved" loading="lazy" />
                       ) : (
                         <span className="account-avatar account-avatar--saved is-fallback" aria-hidden="true">
                           {accountAvatarFallback}

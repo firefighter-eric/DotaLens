@@ -1,3 +1,5 @@
+import { normalizeAvatarUrl } from '../utils/avatarUrl.js';
+import { applyOptionalResource } from '../utils/optionalResources.js';
 import { summarizeDashboard } from '../utils/metrics.js';
 import { toValidUnixDate } from '../utils/date.js';
 import { createOpenDotaClient } from './opendotaClient.js';
@@ -660,8 +662,7 @@ const resolvePlayerAvatar = (player, fallback = '') => {
     player.profile?.avatarmedium,
     player.profile?.avatar,
   ];
-  const hit = candidates.find((value) => typeof value === 'string' && value.trim());
-  return hit ? hit.trim() : fallback;
+  return candidates.map(normalizeAvatarUrl).find(Boolean) || normalizeAvatarUrl(fallback);
 };
 
 const resolvePeerDisplayName = (peer, locale) => {
@@ -1047,6 +1048,7 @@ const buildHeroPerformance = (matches, heroesMetaMap, locale) => {
       heroId,
       hero: heroMeta?.name ?? `Hero #${heroId}`,
       heroAvatar: heroMeta?.avatar ?? '',
+      primaryAttr: heroMeta?.primaryAttr,
       attribute: resolveHeroAttribute(heroMeta, locale),
       matches: 0,
       outcomeMatches: 0,
@@ -1327,29 +1329,22 @@ const summarizeKnownOutcomeDashboard = (heroPerformance, windowMatches) => {
   };
 };
 
-export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang = 'zh') => {
+export const fetchPlayerCoreAnalytics = async (accountId, days, signal, lang = 'zh') => {
   const locale = getLocaleConfig(lang);
   const client = createOpenDotaClient(lang);
   const boundary = createWindowBoundary(days);
 
-  const [player, matchWindow, heroesMetaMap, latestResource, peersResource] = await Promise.all([
+  const [player, matchWindow, heroesMetaMap] = await Promise.all([
     client.getPlayer(accountId, signal),
     client.getPlayerMatchesByDays(accountId, days, signal),
     client.getHeroesMetaMap(signal),
-    settleOptional(
-      'recentMatches',
-      client.getPlayerLatestMatches(accountId, RECENT_MATCH_FETCH_LIMIT, signal),
-      []
-    ),
-    settleOptional('teammates', client.getPlayerPeers(accountId, signal), []),
   ]);
   const rawMatches = toArray(matchWindow?.matches);
   const validMatches = rawMatches.filter((match) => isMatchInsideBoundary(match, boundary));
-  const latestMatches = toArray(latestResource.value);
-  const teammates = buildTeammates(peersResource.value, locale);
+  const teammates = [];
   const teammateSummary = buildTeammateSummary(teammates);
   const achievementTotals = mergeAchievementTotals(null, buildAchievementTotalsFromMatches(validMatches));
-  const recentMatches = buildRecentMatches(latestMatches, heroesMetaMap, locale);
+  const recentMatches = [];
   const windowMatches = buildMatchRows(validMatches, heroesMetaMap, locale);
   const heroPerformance = buildHeroPerformance(validMatches, heroesMetaMap, locale);
   const dailyWinRate = buildDailyWinRate(validMatches, boundary);
@@ -1357,7 +1352,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
   const dailyGpmTrend = buildDailyGpmTrend(validMatches, boundary);
   const dailyXpmTrend = buildDailyXpmTrend(validMatches, boundary);
   const rankData = buildRankDistribution(validMatches, locale);
-  const accessIssues = [latestResource.issue, peersResource.issue].filter(Boolean);
+  const accessIssues = [];
   if (matchWindow?.truncated) {
     accessIssues.push(
       createAccessIssue('windowMatches', {
@@ -1371,7 +1366,7 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
       })
     );
   }
-  const latestMatchStartTime = [...rawMatches, ...latestMatches].reduce((latest, match) => {
+  const latestMatchStartTime = rawMatches.reduce((latest, match) => {
     const startTime = normalizeUnixSeconds(match?.start_time);
     return startTime !== null && startTime > latest ? startTime : latest;
   }, 0);
@@ -1400,14 +1395,15 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     truncated: matchWindow?.truncated === true,
     projectionFallback: matchWindow?.projectionFallback === true,
     windowComplete: matchWindow?.truncated !== true,
-    complete: accessIssues.length === 0,
+    complete: false,
     optionalSlices: {
-      recentMatches: latestResource.issue ? 'unavailable' : 'available',
-      teammates: peersResource.issue ? 'unavailable' : 'available',
+      recentMatches: 'loading',
+      teammates: 'loading',
     },
   };
 
   return {
+    asOf: matchWindow.fetchedAt,
     playerName: player?.profile?.personaname ?? locale.playerFallback(accountId),
     playerAvatar: resolvePlayerAvatar(player),
     heroPerformance,
@@ -1438,6 +1434,48 @@ export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang =
     partial: accessIssues.length > 0,
     status: accessIssues.length > 0 ? 'partial' : 'complete',
   };
+};
+
+// Supplemental requests have independent lifecycle and retry paths.
+export const fetchPlayerOptionalSlice = async (accountId, slice, signal, lang = 'zh') => {
+  const client = createOpenDotaClient(lang);
+  const locale = getLocaleConfig(lang);
+  if (slice === 'teammates') {
+    const result = await settleOptional(slice, client.getPlayerPeers(accountId, signal), []);
+    const teammates = buildTeammates(result.value, locale);
+    return { issue: result.issue, patch: { teammates, teammateSummary: buildTeammateSummary(teammates) } };
+  }
+  if (slice !== 'recentMatches') throw new Error('Unknown optional resource');
+  const [result, heroes] = await Promise.all([
+    settleOptional(slice, client.getPlayerLatestMatches(accountId, RECENT_MATCH_FETCH_LIMIT, signal), []),
+    client.getHeroesMetaMap(signal),
+  ]);
+  const recentMatches = buildRecentMatches(toArray(result.value), heroes, locale);
+  return { issue: result.issue, patch: { recentMatches,
+    latestMatchStartTime: recentMatches.reduce((latest, match) => Math.max(latest, match.startTime ?? 0), 0) || null } };
+};
+
+export const fetchPlayerWindowAnalytics = async (accountId, days, signal, lang = 'zh', { onProgress } = {}) => {
+  let current;
+  const publish = (event) => { if (!signal?.aborted) onProgress?.(current, event); };
+  const core = fetchPlayerCoreAnalytics(accountId, days, signal, lang).then((data) => {
+    current = data;
+    publish();
+    return data;
+  });
+  // Attach rejection handlers immediately, including when core fails first.
+  const supplemental = Promise.allSettled(['recentMatches', 'teammates'].map(async (slice) => {
+    const result = await fetchPlayerOptionalSlice(accountId, slice, signal, lang);
+    await core;
+    if (signal?.aborted) return;
+    current = applyOptionalResource(current, slice, result);
+    publish({ slice, result });
+  }));
+  await core;
+  const results = await supplemental;
+  const failure = results.find((result) => result.status === 'rejected');
+  if (failure) throw failure.reason;
+  return current;
 };
 
 export const fetchRecentMatchDetail = async (

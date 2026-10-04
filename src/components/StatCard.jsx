@@ -18,7 +18,7 @@ function StatCard({ label, value, subtext, accent = 'gold', showAvatar = false, 
       <div className="stat-value-row">
         {showAvatar ? (
           hasAvatar ? (
-            <img src={avatar} alt={avatarAlt || String(value ?? '')} className="stat-avatar" loading="lazy" />
+            <img referrerPolicy="no-referrer" src={avatar} alt={avatarAlt || String(value ?? '')} className="stat-avatar" loading="lazy" />
           ) : (
             <span className="stat-avatar stat-avatar-fallback" aria-hidden="true">
               {fallback}

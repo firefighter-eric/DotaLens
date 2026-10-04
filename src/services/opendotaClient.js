@@ -1,3 +1,4 @@
+import { readBoundedJson } from '../utils/responseJson.js';
 import { heroCatalog } from '../data/heroCatalog.js';
 import {
   DEFAULT_OPENDOTA_API_BASE,
@@ -267,7 +268,7 @@ const fetchJson = async (path, signal, locale, resource = 'request') => {
     if (!response.ok) {
       throw resolveHttpError(response, locale, resource);
     }
-    return await response.json();
+    return await readBoundedJson(response);
   } catch (error) {
     if (error instanceof OpenDotaError) {
       throw error;
@@ -774,6 +775,9 @@ export const createOpenDotaClient = (lang = 'zh') => {
               if (pageMatches.length === 0) {
                 break;
               }
+              if (pageMatches.length > PLAYER_MATCH_PAGE_LIMIT) {
+                throw new OpenDotaError(locale.errors.invalidResponse, { code: 'INVALID_RESPONSE', resource: 'playerMatches', retryable: false });
+              }
               all.push(...pageMatches);
               if (pageMatches.length < PLAYER_MATCH_PAGE_LIMIT) {
                 break;
@@ -783,6 +787,7 @@ export const createOpenDotaClient = (lang = 'zh') => {
               }
             }
             return {
+              fetchedAt: Date.now(),
               matches: dedupeMatchesById(all),
               requestedDays: safeDays,
               pageCount,

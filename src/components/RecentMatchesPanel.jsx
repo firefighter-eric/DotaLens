@@ -1,3 +1,4 @@
+import { formatUnixDateTime as formatDateTime } from '../utils/date.js';
 import { useId } from 'react';
 import { differenceInLocalCalendarDays, toValidUnixDate } from '../utils/date.js';
 
@@ -54,21 +55,6 @@ const fallbackCopy = {
     within30Days: '30天内',
   },
   emptyValue: '-',
-};
-
-const formatDateTime = (startTime, locale, fallback) => {
-  const date = toValidUnixDate(startTime);
-  if (!date) {
-    return fallback;
-  }
-
-  return new Intl.DateTimeFormat(locale, {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
 };
 
 const formatDuration = (durationSec, fallback) => {

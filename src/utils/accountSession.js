@@ -1,3 +1,5 @@
+import { normalizeAvatarUrl } from './avatarUrl.js';
+
 export const MAX_UINT32 = 4294967295n;
 export const MAX_SAVED_ACCOUNTS = 5;
 export const ACCOUNT_STORAGE_KEY = 'dotalens.accounts.v2';
@@ -55,8 +57,8 @@ export const sanitizePersistedAccount = (value) => {
   const idType = typeof value.idType === 'string' ? value.idType : 'steam';
   const rawId = typeof value.rawId === 'string' ? value.rawId.trim() : '';
   const accountId = typeof value.accountId === 'string' ? value.accountId.trim() : '';
-  const nickname = typeof value.nickname === 'string' ? value.nickname.trim() : '';
-  const avatar = typeof value.avatar === 'string' ? value.avatar.trim() : '';
+  const nickname = typeof value.nickname === 'string' ? value.nickname.trim().slice(0, 128) : '';
+  const avatar = normalizeAvatarUrl(value.avatar);
 
   if (idType !== 'steam' || !rawId || !accountId) {
     return null;

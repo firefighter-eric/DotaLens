@@ -12,6 +12,14 @@ export const toValidUnixDate = (value) => {
   return Number.isFinite(date.getTime()) ? date : null;
 };
 
+export const formatUnixDateTime = (value, locale, fallback = '-', withYear = false) => {
+  const date = toValidUnixDate(value);
+  return date ? new Intl.DateTimeFormat(locale, {
+    ...(withYear ? { year: 'numeric' } : {}),
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(date) : fallback;
+};
+
 export const toLocalCalendarDayOrdinal = (value) => {
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) {
