@@ -2,12 +2,13 @@
 
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchPlayerWindowAnalytics } from '../services/opendota.js';
+import { fetchPlayerOptionalSlice, fetchPlayerWindowAnalytics } from '../services/opendota.js';
 import { invalidateOpenDotaCache } from '../services/opendotaClient.js';
 import { usePlayerAnalytics } from './usePlayerAnalytics.js';
 
 vi.mock('../services/opendota.js', () => ({
   fetchPlayerWindowAnalytics: vi.fn(),
+  fetchPlayerOptionalSlice: vi.fn(),
 }));
 
 vi.mock('../services/opendotaClient.js', () => ({
@@ -20,6 +21,31 @@ afterEach(() => {
 });
 
 describe('usePlayerAnalytics request lifecycle', () => {
+  it('publishes core data early and merges a slice retry without losing it to another late slice', async () => {
+    let progress;
+    let finish;
+    const core = { playerName: 'Early Player', asOf: 100, teammates: [], accessIssues: [{ slice: 'teammates', code: 'NETWORK_ERROR' }], dataCoverage: { optionalSlices: { teammates: 'unavailable', recentMatches: 'loading' } } };
+    fetchPlayerWindowAnalytics.mockImplementation((_id, _days, _signal, _lang, options) => {
+      progress = options.onProgress;
+      progress(core);
+      return new Promise((resolve) => { finish = resolve; });
+    });
+    fetchPlayerOptionalSlice.mockResolvedValue({ patch: { teammates: [{ accountId: 5 }] }, issue: null });
+    const { result } = renderHook(() => usePlayerAnalytics({ accountId: '42', days: 30, lang: 'en' }));
+    await waitFor(() => expect(result.current.data.playerName).toBe('Early Player'));
+    expect(result.current.isRefreshing).toBe(false);
+    expect(result.current.asOf).toBe(100);
+    await act(async () => { await result.current.retrySlice('teammates'); });
+    const recent = { patch: { recentMatches: [{ matchId: 7 }] }, issue: null };
+    await act(async () => { progress({ ...core, ...recent.patch }, { slice: 'recentMatches', result: recent }); finish({ ...core, ...recent.patch }); });
+    expect(result.current.data.teammates).toEqual([{ accountId: 5 }]);
+    expect(result.current.data.recentMatches).toEqual([{ matchId: 7 }]);
+    expect(result.current.data.accessIssues).toEqual([]);
+    expect(result.current.data.dataCoverage.complete).toBe(true);
+    expect(fetchPlayerWindowAnalytics).toHaveBeenCalledOnce();
+    expect(fetchPlayerOptionalSlice.mock.calls[0].slice(0, 2)).toEqual(['42', 'teammates']);
+  });
+
   it('aborts query A and starts query B when the player changes', async () => {
     const requests = [];
     fetchPlayerWindowAnalytics.mockImplementation(

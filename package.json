@@ -30,9 +30,10 @@
     "check:budget": "node scripts/checkBudgets.mjs",
     "audit": "npm audit --omit=dev --audit-level=high",
     "audit:all": "npm audit --audit-level=high",
-    "check": "npm run lint && npm run test && npm run build && npm run check:budget",
+    "check": "npm run lint && npm run test:coverage && npm run build && npm run check:budget && npm run audit:all",
     "sync:heroes": "node scripts/syncHeroes.mjs",
-    "sync:items": "node scripts/syncItems.mjs"
+    "sync:items": "node scripts/syncItems.mjs",
+    "check:deployment": "node scripts/checkDeployment.mjs"
   },
   "dependencies": {
     "react": "19.2.8",
@@ -42,14 +43,14 @@
     "@eslint/js": "10.0.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "@vitejs/plugin-react": "6.0.5",
-    "@vitest/coverage-v8": "4.1.10",
-    "eslint": "10.8.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "@vitest/coverage-v8": "4.1.11",
+    "eslint": "10.12.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.3",
     "globals": "17.8.0",
     "jsdom": "^29.1.1",
-    "vite": "8.2.0",
-    "vitest": "4.1.10"
+    "vite": "8.3.2",
+    "vitest": "4.1.11"
   }
 }

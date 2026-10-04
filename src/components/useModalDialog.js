@@ -31,6 +31,7 @@ export function useModalDialog({ open, onClose, initialFocusRef }) {
     }
 
     const returnFocusTarget = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const returnScrollPosition = { top: window.scrollY, left: window.scrollX };
     const previousBodyOverflow = document.body.style.overflow;
     let focusFrame = 0;
 
@@ -92,7 +93,12 @@ export function useModalDialog({ open, onClose, initialFocusRef }) {
 
       window.requestAnimationFrame(() => {
         if (returnFocusTarget?.isConnected) {
-          returnFocusTarget.focus();
+          returnFocusTarget.focus({ preventScroll: true });
+          // Native dialog.close() can scroll the page while restoring focus.
+          // Keep the user's place even when the selected catalog entry changed.
+          if (window.scrollY !== returnScrollPosition.top || window.scrollX !== returnScrollPosition.left) {
+            window.scrollTo({ ...returnScrollPosition, behavior: 'instant' });
+          }
         }
       });
     };

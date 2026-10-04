@@ -36,12 +36,7 @@ const resolveMatchTime = (match) => {
   if (!startDate) {
     return null;
   }
-  const durationSec = toFiniteOrNull(match?.durationSec);
-  if (durationSec === null || durationSec <= 0) {
-    return startDate;
-  }
-  const endDate = new Date(startDate.getTime() + durationSec * 1000);
-  return Number.isFinite(endDate.getTime()) ? endDate : startDate;
+  return startDate;
 };
 
 const formatMatchTime = (match, locale) => {

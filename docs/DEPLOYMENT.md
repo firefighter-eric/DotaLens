@@ -25,7 +25,15 @@ Deploy an immutable build artifact produced from a reviewed commit. Record the c
 
 ## Hosting and headers
 
-`public/_headers` is copied into the build as a template for hosts that support the Netlify/Cloudflare Pages format. On other platforms, translate the same policies into the host configuration. Verify the effective headers after deployment; a file in `dist/` alone does not configure every server.
+The production site is https://dota-lens-ruddy.vercel.app/. Vercel reads the root `vercel.json` header rules. `public/_headers` carries the same security policy for Netlify/Cloudflare Pages; Vercel does not apply that file. A regression test keeps both security policies aligned.
+
+After deploying, check the actual public response (the command exits nonzero if the policy is absent):
+
+```bash
+npm run check:deployment -- https://dota-lens-ruddy.vercel.app/
+```
+
+Header configuration follows [Vercel's headers reference](https://vercel.com/docs/project-configuration/vercel-json#headers). A successful local test verifies the configuration only; the public response check verifies deployment activation.
 
 Recommended caching:
 
@@ -40,7 +48,7 @@ Optional build-time variables:
 - `VITE_OPENDOTA_API_BASE`: optional same-origin reverse-proxy path such as `/api/opendota`; leave unset for the official API. Arbitrary compatible origins are intentionally rejected at build time because `public/_headers` only authorizes same-origin requests and `https://api.opendota.com`.
 - `VITE_APP_RELEASE`: immutable release identifier passed to the optional host error reporter.
 
-If the host injects `window.__DOTALENS_REPORT_ERROR__`, verify that it receives only the sanitized error-boundary payload expected by the host. Do not put credentials or player-private data in that reporter.
+The optional `window.__DOTALENS_REPORT_ERROR__` callback receives only `{ event: 'render_failure', errorType, release }`. Error types are allowlisted; the release identifier is character-filtered and limited to 80 characters. Error messages, stacks, component stacks, player IDs, URLs, and custom error properties are not sent. Detailed error logging runs only in development.
 
 ## Smoke test
 

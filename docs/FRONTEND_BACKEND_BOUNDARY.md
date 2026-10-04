@@ -8,8 +8,9 @@
 
 - `src/App.jsx`
 - `src/components/*`
+- `src/hooks/*`
 - `src/i18n/copy.js`
-- `src/styles.css`
+- `src/styles.css`（入口）与 `src/styles/{tokens,components,accessibility,workspace}.css`；目录样式 `src/styles/catalog.css` 随目录页面按需加载。
 
 职责：
 
@@ -17,6 +18,8 @@
 - 仅消费已经聚合好的 ViewModel。
 - 不直接请求 OpenDota。
 - 不在 JSX 中拼装原始响应字段。
+
+账号存取由 `useAccountSession` 管理；查询生命周期由 `usePlayerAnalytics` 管理；抽屉请求由 `useMatchDetail` 管理。`useWorkspacePreferences` 持久化语言并通过 URL hash 保存页签，支持刷新和浏览器前进/后退。`WorkspaceHeader` 与局部错误边界让导航在数据请求或页面渲染失败时仍然可用；目录不依赖玩家数据。
 
 ### 调用层（Data Client）
 
@@ -29,6 +32,8 @@
 - 参数兜底（如 `days`、`limit`）和数组/空值兜底。
 - 处理窗口比赛分页拉取与去重。
 - 维护有 TTL、去重、按资源失效与详情 LRU 上限的响应缓存。
+- JSON 响应按声明长度和流式实收字节限制为 8 MiB；单页比赛最多 500 条。
+- 头像仅接受 HTTPS Steam CDN 地址；缓存保留实际取数时间，命中缓存不会伪装为刚更新。
 
 当前 client 暴露的主要接口：
 
@@ -68,19 +73,20 @@
 
 ### 窗口统计链路
 
-1. `src/App.jsx` 调用 `fetchPlayerWindowAnalytics(accountId, days, signal, lang)`。
+1. `src/App.jsx` 通过 `usePlayerAnalytics` 调用 `fetchPlayerWindowAnalytics(accountId, days, signal, lang, { onProgress })`。
 2. `src/services/opendota.js` 创建 `createOpenDotaClient(lang)`。
 3. `src/services/opendotaClient.js` 请求：
    - `/players/{accountId}`
    - `/players/{accountId}/matches?date={days}&significant=0&limit=...&offset=...`
    - `/players/{accountId}/recentMatches`（可选切片，失败时返回明确的 `accessIssues`）
    - `/players/{accountId}/peers`
-4. `src/services/opendota.js` 聚合并返回 dashboard ViewModel。
+4. `fetchPlayerCoreAnalytics` 完成玩家和窗口统计后立即发布核心 ViewModel；最近对局与队友独立补齐，不阻塞核心统计。
+5. 每个补充切片通过 `optionalSlices` 表示 loading/available/unavailable，失败保留 `accessIssues`，可以通过 `retrySlice` 单独重试。以查询键、请求序号及 AbortSignal 隔离旧请求；补充结果按切片合并，避免覆盖其他切片的重试结果。
 
 ### 最近比赛详情链路
 
 1. 用户在最近比赛表格或英雄展开明细中点击某场比赛。
-2. `src/App.jsx` 调用 `fetchRecentMatchDetail(accountId, matchId, signal, lang, fallback)`。
+2. `useMatchDetail` 调用 `fetchRecentMatchDetail(accountId, matchId, signal, lang, fallback)`；示例详情由 `services/mockAnalytics.js` 构造。
 3. `src/services/opendotaClient.js` 请求 `/matches/{matchId}`，并读取本地英雄/物品元数据。
 4. `src/services/opendota.js` 聚合个人视角数据、出装、技能和全场玩家面板后返回详情数据。
 
@@ -105,6 +111,8 @@
 规则：
 
 - UI 渲染时优先消费本地目录和素材。
+- `useItemCatalog` 负责惰性加载与重试，`CatalogTab`/`CatalogListPanel` 消费加载状态与目录数据；加载失败与真正的空目录采用不同界面。
+- `useCatalogBrowser` 保存英雄与物品各自的搜索、分类、排序、选中项和详情状态；`utils/catalog.js` 统一目录 ViewModel、筛选及计数。英雄紧凑网格连续展示全目录，物品每批展示 48 项。
 - OpenDota 仅提供比赛与玩家动态数据，不负责目录展示结构。
 
 ## 4. 约束（必须遵守）

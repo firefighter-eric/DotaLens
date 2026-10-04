@@ -1,4 +1,5 @@
-import { useId } from 'react';
+import { formatUnixDateTime as formatDateTime } from '../utils/date.js';
+import { useId, useState } from 'react';
 import { formatHeroWinRate } from '../utils/metrics.js';
 import { differenceInLocalCalendarDays, toValidUnixDate } from '../utils/date.js';
 
@@ -120,21 +121,6 @@ const resolveAttributeTone = (attribute) => {
   return ATTRIBUTE_TONE_MAP[normalized] ?? 'unknown';
 };
 
-const formatDateTime = (startTime, locale, fallback) => {
-  const date = toValidUnixDate(startTime);
-  if (!date) {
-    return fallback;
-  }
-
-  return new Intl.DateTimeFormat(locale, {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
-};
-
 const formatDuration = (durationSec, fallback) => {
   if (!Number.isFinite(durationSec) || durationSec <= 0) {
     return fallback;
@@ -234,6 +220,8 @@ function HeroPerformanceTable({
   copy = fallbackCopy,
 }) {
   const titleId = useId();
+  const filterId = useId();
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const activeControls = controls ?? {
     sortKey: 'winRate',
     sortDir: 'desc',
@@ -341,6 +329,10 @@ function HeroPerformanceTable({
             </select>
           </label>
         </div>
+        <button type="button" className="hero-filter-toggle" aria-expanded={filtersOpen} aria-controls={filterId} onClick={() => setFiltersOpen((value) => !value)}>
+          {controlCopy.filters ?? 'Filters'} · {attributes.find((item) => item.value === activeControls.attributeFilter)?.label ?? copy.controls.attributeAll} · {copy.controls.minMatchesLabel} {activeControls.minMatches}
+        </button>
+        <div id={filterId} className={`hero-filter-options ${filtersOpen ? 'is-open' : ''}`}>
         <label>
           <span>{copy.controls.attributeLabel}</span>
           <select
@@ -349,8 +341,8 @@ function HeroPerformanceTable({
           >
             <option value="all">{copy.controls.attributeAll}</option>
             {attributes.map((attribute) => (
-              <option key={attribute} value={attribute}>
-                {attribute}
+              <option key={attribute.value ?? attribute} value={attribute.value ?? attribute}>
+                {attribute.label ?? attribute}
               </option>
             ))}
           </select>
@@ -368,6 +360,7 @@ function HeroPerformanceTable({
         <button type="button" className="table-export-btn" onClick={onExport} disabled={heroes.length === 0}>
           {copy.controls.export}
         </button>
+        </div>
       </div>
       <div
         className="table-wrap desktop-data-table"

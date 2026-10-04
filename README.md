@@ -42,7 +42,8 @@ npm run dev
 - `npm run build`：生产构建
 - `npm run check:budget`：检查生产包与静态资源预算
 - `npm run audit:all`：检查生产和开发依赖漏洞
-- `npm run check`：依次运行 lint、test、build 与资源预算
+- `npm run check`：依次运行 lint、覆盖率测试、build、资源预算与全量依赖审计
+- `npm run check:deployment -- https://dota-lens-ruddy.vercel.app/`：验证 Vercel 线上实际安全响应头
 - `npm run preview`：本地预览构建结果
 - `npm run sync:heroes`：同步英雄目录与头像资源
 - `npm run sync:items`：同步物品目录与图标资源

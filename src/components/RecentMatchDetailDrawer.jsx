@@ -1,5 +1,5 @@
+import { formatUnixDateTime as formatDateTime } from '../utils/date.js';
 import { useEffect, useId, useRef, useState } from 'react';
-import { toValidUnixDate } from '../utils/date.js';
 import { useModalDialog } from './useModalDialog.js';
 
 const fallbackDetailCopy = {
@@ -84,22 +84,6 @@ const fallbackDetailCopy = {
   },
   scoreboardAriaLabel: (team) => `${team}玩家数据表`,
   emptyValue: '-',
-};
-
-const formatDateTime = (timestampSec, locale, fallback) => {
-  const date = toValidUnixDate(timestampSec);
-  if (!date) {
-    return fallback;
-  }
-
-  return new Intl.DateTimeFormat(locale, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
 };
 
 const formatDuration = (durationSec, fallback) => {
@@ -269,7 +253,7 @@ function PlayerScoreboardSection({ radiantPlayers, direPlayers, copy }) {
                             </div>
                             <div className="match-player-name">
                               {player.playerAvatar ? (
-                                <img src={player.playerAvatar} alt="" className="player-avatar" loading="lazy" />
+                                <img referrerPolicy="no-referrer" src={player.playerAvatar} alt="" className="player-avatar" loading="lazy" />
                               ) : (
                                 <span className="player-avatar is-fallback" aria-hidden="true">
                                   {getAvatarInitial(player.playerName, copy.emptyValue)}
@@ -572,7 +556,7 @@ function RecentMatchDetailDrawer({
               <div className="match-detail-grid">
                 <div>
                   <span>{effectiveCopy.labels.startTime}</span>
-                  <strong>{formatDateTime(overview.startTime, locale, effectiveCopy.emptyValue)}</strong>
+                  <strong>{formatDateTime(overview.startTime, locale, effectiveCopy.emptyValue, true)}</strong>
                 </div>
                 <div>
                   <span>{effectiveCopy.labels.duration}</span>

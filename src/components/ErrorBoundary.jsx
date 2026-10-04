@@ -1,4 +1,5 @@
 import { Component } from 'react';
+import { createErrorReport } from '../utils/errorTelemetry.js';
 
 const getFallbackCopy = () => {
   const isEnglish =
@@ -34,11 +35,7 @@ export default class ErrorBoundary extends Component {
         : null;
     if (reporter) {
       try {
-        reporter({
-          error,
-          componentStack: info?.componentStack ?? '',
-          release: import.meta.env.VITE_APP_RELEASE || 'development',
-        });
+        reporter(createErrorReport(error, import.meta.env.VITE_APP_RELEASE));
       } catch {
         // A host reporter must never replace the original recovery UI.
       }
@@ -49,6 +46,11 @@ export default class ErrorBoundary extends Component {
   }
 
   handleReload = () => {
+    if (this.props.onRetry) {
+      this.setState({ error: null });
+      this.props.onRetry();
+      return;
+    }
     window.location.reload();
   };
 
@@ -57,17 +59,18 @@ export default class ErrorBoundary extends Component {
       return this.props.children;
     }
 
-    const copy = getFallbackCopy();
+    const copy = this.props.copy || getFallbackCopy();
     return (
-      <main className="fatal-error" role="alert">
+      <div className={this.props.onRetry ? 'panel resource-state' : 'fatal-error'} role="alert">
         <section className="panel fatal-error__panel">
           <h1>{copy.title}</h1>
           <p>{copy.body}</p>
           <button type="button" onClick={this.handleReload}>
             {copy.action}
           </button>
+          {this.props.onRetry && copy.reload ? <button type="button" className="secondary-button" onClick={() => window.location.reload()}>{copy.reload}</button> : null}
         </section>
-      </main>
+      </div>
     );
   }
 }

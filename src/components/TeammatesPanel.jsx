@@ -164,6 +164,7 @@ function TeammatesPanel({
   lang = 'zh',
   copy = fallbackCopy,
   error = '',
+  loading = false,
   errorRetryable = true,
   retryAfter = null,
   onRetry,
@@ -176,7 +177,7 @@ function TeammatesPanel({
   const [retryDelaySeconds, setRetryDelaySeconds] = useState(0);
   useEffect(() => {
     const delay = Number(retryAfter);
-    if (!error || !Number.isFinite(delay) || delay <= 0) {
+    if (loading || !error || !Number.isFinite(delay) || delay <= 0) {
       setRetryDelaySeconds(0);
       return undefined;
     }
@@ -191,7 +192,7 @@ function TeammatesPanel({
       });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [error, retryAfter]);
+  }, [error, retryAfter, loading]);
   const toggleSort = (nextKey) => {
     if (sortKey === nextKey) {
       setSortDir((prev) => (prev === 'desc' ? 'asc' : 'desc'));
@@ -256,7 +257,8 @@ function TeammatesPanel({
         </div>
       </div>
 
-      {error ? (
+      {loading ? <p className="panel-state" role="status">{copy.loading}</p> : null}
+      {error && !loading ? (
         <div className="panel-state-row" role="alert">
           <p className="panel-state is-error">{error}</p>
           {onRetry && errorRetryable ? (
@@ -407,7 +409,7 @@ function TeammatesPanel({
                     <td>
                       <div className="hero-name-cell">
                         {teammate.playerAvatar ? (
-                          <img src={teammate.playerAvatar} alt="" className="teammate-avatar" loading="lazy" />
+                          <img referrerPolicy="no-referrer" src={teammate.playerAvatar} alt="" className="teammate-avatar" loading="lazy" />
                         ) : null}
                         <span>{teammate.playerName || copy.emptyValue}</span>
                       </div>
@@ -437,7 +439,7 @@ function TeammatesPanel({
                 <div className="teammate-mobile-card__head">
                   <span className="hero-name-cell">
                     {teammate.playerAvatar ? (
-                      <img src={teammate.playerAvatar} alt="" className="teammate-avatar" loading="lazy" />
+                      <img referrerPolicy="no-referrer" src={teammate.playerAvatar} alt="" className="teammate-avatar" loading="lazy" />
                     ) : null}
                     <strong>{teammate.playerName || copy.emptyValue}</strong>
                   </span>
@@ -475,7 +477,7 @@ function TeammatesPanel({
             ))}
           </div>
         </>
-      ) : !error ? (
+      ) : !error && !loading ? (
         <p className="empty-text">{copy.noDataText}</p>
       ) : null}
     </section>
